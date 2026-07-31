@@ -7,6 +7,7 @@ import shutil
 import socket
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -255,23 +256,62 @@ def _cpu_check() -> Check:
 
 
 def _public_ip_check() -> Check:
-    request = urllib.request.Request(
-        "https://api.ipify.org",
-        headers={"User-Agent": "proxy-traffic-lab-doctor/0.1"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            value = response.read(128).decode("ascii").strip()
-        socket.inet_pton(socket.AF_INET6 if ":" in value else socket.AF_INET, value)
-    except (OSError, ValueError, urllib.error.URLError) as exc:
+    configured = os.environ.get("LAB_PUBLIC_IP", "").strip()
+    if configured:
+        try:
+            socket.inet_pton(
+                socket.AF_INET6 if ":" in configured else socket.AF_INET,
+                configured,
+            )
+        except OSError:
+            return Check(
+                "public_ip",
+                "warn",
+                "LAB_PUBLIC_IP is not a valid IP address",
+                False,
+                "Correct LAB_PUBLIC_IP in the ignored .env file.",
+            )
         return Check(
             "public_ip",
-            "warn",
-            f"lookup failed: {type(exc).__name__}",
+            "pass",
+            f"configured; {stable_hash(configured)}",
             False,
-            "Confirm outbound HTTPS/DNS connectivity manually.",
         )
-    return Check("public_ip", "pass", stable_hash(value), False)
+
+    endpoints = (
+        "https://api.ipify.org",
+        "https://checkip.amazonaws.com",
+    )
+    failures: list[str] = []
+    for endpoint in endpoints:
+        request = urllib.request.Request(
+            endpoint,
+            headers={"User-Agent": "proxy-traffic-lab-doctor/0.1"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                value = response.read(128).decode("ascii").strip()
+            socket.inet_pton(
+                socket.AF_INET6 if ":" in value else socket.AF_INET,
+                value,
+            )
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            failures.append(f"{urllib.parse.urlparse(endpoint).hostname}:{type(exc).__name__}")
+            continue
+        source = urllib.parse.urlparse(endpoint).hostname
+        return Check(
+            "public_ip",
+            "pass",
+            f"source={source}; {stable_hash(value)}",
+            False,
+        )
+    return Check(
+        "public_ip",
+        "warn",
+        "lookup failed: " + ", ".join(failures),
+        False,
+        "Set LAB_PUBLIC_IP in .env from the cloud console, or confirm outbound HTTPS.",
+    )
 
 
 def _vps_ssh_check(config: LabConfig, *, enabled: bool) -> Check:
@@ -344,4 +384,3 @@ def _existing_ancestor(path: Path) -> Path:
     while not candidate.exists() and candidate != candidate.parent:
         candidate = candidate.parent
     return candidate
-

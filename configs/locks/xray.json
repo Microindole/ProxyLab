@@ -1,0 +1,5 @@
+{
+  "source_tag": "ghcr.io/xtls/xray-core:26.2.6",
+  "image": "ghcr.io/xtls/xray-core@sha256:c6daec5244a2110490ec2049d4c6588cbef544a8bcb4b32c5e4da16e15b7f98e",
+  "locked_at_utc": "2026-07-31T09:39:20.520344+00:00"
+}
