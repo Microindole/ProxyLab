@@ -1,0 +1,15 @@
+schema_version: 1
+
+cases:
+  - id: vless-tcp-tls
+    enabled: true
+    protocol: vless
+    client: xray
+    server: xray
+    outer_transport: tcp
+    wrapper: raw
+    security: tls
+    flow: null
+    inner_networks:
+      - tcp
+

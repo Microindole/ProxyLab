@@ -1,0 +1,9 @@
+schema_version: 1
+
+profiles:
+  baseline:
+    latency_ms: 0
+    jitter_ms: 0
+    loss_percent: 0
+    bandwidth_mbps: 10
+

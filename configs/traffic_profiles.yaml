@@ -1,0 +1,20 @@
+schema_version: 1
+
+profiles:
+  web:
+    enabled: true
+    max_duration_seconds: 120
+    max_bytes: 104857600
+  download:
+    enabled: true
+    max_duration_seconds: 180
+    max_bytes: 268435456
+  upload:
+    enabled: true
+    max_duration_seconds: 180
+    max_bytes: 134217728
+  video:
+    enabled: true
+    max_duration_seconds: 180
+    max_bytes: 268435456
+
