@@ -1,26 +1,27 @@
-# Proxy Traffic Lab
+# 代理流量实验室
 
-An authorized, reproducible pipeline for collecting encrypted proxy-tunnel
-traffic. The original smoke milestone supports `VLESS + TCP + TLS`. The first
-formal dataset pilot supports target class 5: `VMess + WebSocket + TLS`, using
-the pinned official Xray-core implementation rather than custom protocol code.
+一个用于收集加密代理隧道流量的、经过授权且可复现的流水线。
 
-This repository is not a public proxy deployment kit. Run it only on systems
-and networks you own or are explicitly authorized to test. Proxy ports must be
-restricted to the capture client's source IP. Never commit credentials,
-private keys, UUIDs, tokens, public IP addresses, or packet captures.
+原始冒烟测试里程碑支持
+`VLESS + TCP + TLS`。第一个正式数据集试验支持目标类别 5：
+`VMess + WebSocket + TLS`，使用固定版本的官方 Xray-core
+实现，而不是自定义协议代码。
 
-## Current milestone
+本仓库不是公共代理部署工具包。仅可在你拥有或明确获得授权测试权限的系统和网络上运行。
+代理端口必须限制为采集客户端的源
+IP。绝不要提交凭据、私钥、UUID、令牌、公共 IP 地址或数据包捕获文件。
 
-- Typed YAML configuration
-- `lab doctor` host diagnostics
-- Conservative limits suitable for a 2-core / 4-GiB server
-- Protocol-matrix validation for the MVP case
-- Extension points for providers, isolation, capture, traffic, and datasets
+## 当前里程碑
 
-## Ubuntu bootstrap
+-   类型化 YAML 配置
+-   `lab doctor` 主机诊断
+-   适用于 2 核 / 4 GiB 服务器的保守资源限制
+-   MVP 场景的协议矩阵验证
+-   面向提供商、隔离、采集、流量和数据集的扩展接口
 
-```bash
+## Ubuntu 初始化
+
+``` bash
 sudo apt update
 sudo apt install -y python3 python3-venv git make iproute2 nftables \
   tcpdump tshark curl jq openssl
@@ -35,28 +36,28 @@ lab doctor
 pytest
 ```
 
-Docker is checked by `lab doctor`, but this repository intentionally does not
-use an untrusted one-line Docker or proxy installer.
+`lab doctor` 会检查 Docker，但本仓库不会使用不可信的一键 Docker
+或代理安装程序。
 
-## Configuration
+## 配置
 
-The checked-in files contain placeholders and non-secret defaults. Put secrets
-under `secrets/` or inject them through the environment. The entire `secrets/`
-directory is ignored by Git.
+仓库中的文件只包含占位符和非敏感默认值。请将密钥放入 `secrets/` 目录，
+或通过环境变量注入。整个 `secrets/` 目录已被 Git 忽略。
 
-```bash
+``` bash
 lab config validate
 lab matrix list
 lab doctor --json
 ```
 
-## MVP-1 Xray preparation
+## Xray 准备
 
-The selected baseline is the official `ghcr.io/xtls/xray-core` image at the
-stable `v26.2.6` release (GHCR tag `26.2.6`). The first command resolves that tag to an immutable
-repository digest and stores the result in `configs/locks/xray.json`.
+选定的基线是官方 `ghcr.io/xtls/xray-core` 镜像，稳定版本为 `v26.2.6`
+（GHCR 标签
+`26.2.6`）。第一个命令会将该标签解析为不可变仓库摘要，并将结果保存到
+`configs/locks/xray.json`。
 
-```bash
+``` bash
 lab xray lock-image
 lab xray init-secrets --server-name lab.invalid --validity-days 30
 lab xray render --server-address YOUR_VPS_PUBLIC_IP --server-port 24443
@@ -67,30 +68,28 @@ lab server logs --tail 100
 lab server stop
 ```
 
-All generated credentials and client/server configurations are under the
-Git-ignored `secrets/` directory. The short-lived self-signed certificate is
-verified by certificate SHA-256 pinning; generated client configuration never
-sets `allowInsecure`.
+所有生成的凭据以及客户端/服务器配置均位于 Git 忽略的 `secrets/` 目录中。
+短期自签名证书通过证书 SHA-256 固定校验；生成的客户端配置不会设置
+`allowInsecure`。
 
-Do not open port `24443` until the cloud security group limits its source to
-the capture client's public `/32`. The port will be made configurable and
-rotated across later dataset groups.
+在云安全组限制来源为采集客户端公网 `/32` 之前，不要开放端口 `24443`。
+后续数据集分组中，该端口将支持配置化并进行轮换。
 
-`lab server start` is idempotent and re-validates both generated configurations
-before starting. The server runs read-only with all Linux capabilities dropped,
-no privilege escalation, one CPU, 512 MiB memory, and a 128-process limit.
+`lab server start`
+具有幂等性，并会在启动前重新验证生成的客户端和服务器配置。
+服务器以只读模式运行，删除所有 Linux capabilities，无权限提升，限制为：
+一个 CPU、512 MiB 内存以及 128 个进程。
 
-## Formal class 5 pilot
+## 试验
 
-For the complete Chinese production workflow—including server/client terminal
-separation, WSLg Chromium startup, programs that must be disabled, automatic
-size/idle stopping, and the five-PCAP acceptance checks—follow
-[`docs/formal-capture-runbook-zh.md`](docs/formal-capture-runbook-zh.md).
+完整的中文生产流程（包括服务器/客户端终端分离、WSLg Chromium 启动、
+必须禁用的程序、自动大小/空闲停止机制，以及五个 PCAP
+验收检查），请参考：
+[`docs/formal-capture-runbook-zh.md`](docs/formal-capture-runbook-zh.md)。
 
-Render class 5 on the server. This replaces only the ignored generated
-configuration; it does not replace certificates or credentials.
+在服务器端渲染类别 5。此操作只替换被忽略的生成配置，不会替换证书或凭据。
 
-```bash
+``` bash
 lab xray render \
   --case class-05-vmess-websocket-tls \
   --server-address YOUR_VPS_PUBLIC_IP \
@@ -100,18 +99,18 @@ lab server start
 lab server status
 ```
 
-Copy `secrets/generated/client.json` to the capture host, then run there:
+将 `secrets/generated/client.json` 复制到采集主机，然后在采集主机运行：
 
-```bash
+``` bash
 lab client start --config ~/proxy-lab-client/client.json
 lab client status
 curl --fail --socks5-hostname 127.0.0.1:10808 https://example.com/ -o /dev/null
 ```
 
-Warm the sudo credential before a pilot because capture uses non-interactive
-sudo and will not prompt while Chromium is running:
+在试验前预热 sudo 凭据，因为采集过程使用非交互式 sudo。 Chromium
+运行期间不会弹出提示：
 
-```bash
+``` bash
 sudo -v
 export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
 
@@ -126,8 +125,16 @@ lab experiment web \
   --output-root ~/proxy-lab-data
 ```
 
-Each pilot is stored under
-`~/proxy-lab-data/pilot/class-05-vmess-websocket-tls/<sample-id>/` with
-`capture.pcap`, `metadata.json`, `traffic.jsonl`, and `manifest.sha256`.
-Only use URLs that permit automated access. The web pilot is a correctness
-gate, not the final 5-GiB class collection.
+每次试验都会存储在：
+
+`~/proxy-lab-data/pilot/class-05-vmess-websocket-tls/<sample-id>/`
+
+其中包含：
+
+-   `capture.pcap`
+-   `metadata.json`
+-   `traffic.jsonl`
+-   `manifest.sha256`
+
+只能使用允许自动化访问的 URL。Web 试验是正确性验证门槛， 不是最终 5 GiB
+类别数据采集。
