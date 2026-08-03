@@ -1,3 +1,7 @@
+from pathlib import Path
+from types import SimpleNamespace
+
+from proxy_traffic_lab.capture import experiment
 from proxy_traffic_lab.capture.experiment import _format_bytes
 from proxy_traffic_lab.controller.cli import build_parser
 
@@ -23,3 +27,67 @@ def test_capture_run_defaults_to_one_gib() -> None:
     assert args.target_gib == 1.0
     assert args.idle_seconds == 15.0
     assert args.idle_kib_per_second == 32.0
+
+
+def test_capture_run_accepts_repeated_profiles() -> None:
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "run",
+            "--case",
+            "class-05-vmess-websocket-tls",
+            "--server-ip",
+            "203.0.113.10",
+            "--server-port",
+            "24443",
+            "--profile",
+            "large-download",
+            "--profile",
+            "video",
+        ]
+    )
+    assert args.profiles == ["large-download", "video"]
+
+
+def test_segmented_capture_rotates_only_after_idle(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_segment(**kwargs):
+        calls.append(kwargs["profile"])
+        return Path(f"/{kwargs['profile']}"), "target_reached_and_traffic_idle"
+
+    monkeypatch.setattr(experiment, "_capture_size_segment", fake_segment)
+    case = SimpleNamespace(enabled=True, id="case-05", outer_transport="tcp")
+    sessions = experiment.run_segmented_capture(
+        case=case,
+        server_ip="203.0.113.10",
+        server_port=24443,
+        target_bytes=1024,
+        output_root=Path("/data"),
+        profiles=("download", "video"),
+        interface="eth0",
+    )
+    assert calls == ["download", "video"]
+    assert sessions == (Path("/download"), Path("/video"))
+
+
+def test_segmented_capture_does_not_split_an_active_flow(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_segment(**kwargs):
+        calls.append(kwargs["profile"])
+        return Path(f"/{kwargs['profile']}"), "target_reached_finish_timeout"
+
+    monkeypatch.setattr(experiment, "_capture_size_segment", fake_segment)
+    case = SimpleNamespace(enabled=True, id="case-05", outer_transport="tcp")
+    sessions = experiment.run_segmented_capture(
+        case=case,
+        server_ip="203.0.113.10",
+        server_port=24443,
+        target_bytes=1024,
+        output_root=Path("/data"),
+        profiles=("download", "video"),
+        interface="eth0",
+    )
+    assert calls == ["download"]
+    assert sessions == (Path("/download"),)

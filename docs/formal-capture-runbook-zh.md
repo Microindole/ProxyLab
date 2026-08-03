@@ -228,7 +228,23 @@ python -m pip install \
 
 本手册要求使用 WSL 中由 Playwright 启动的 Chromium。窗口会通过 WSLg 显示在 Windows 桌面，但浏览器进程和代理配置属于 WSL。不要用普通 Windows Chrome 替代。
 
-## 8. 第五步：开始一份 1 GiB 正式抓包
+### 7.1 Chromium 中文显示为方框
+
+这表示 WSL 中缺少中文字体，不是网页、代理或抓包故障。关闭 Chromium，然后在 WSL 安装字体：
+
+```bash
+sudo apt install -y fonts-noto-cjk fonts-noto-color-emoji
+fc-cache -f
+
+fc-match 'Noto Sans CJK SC'
+fc-match emoji
+```
+
+第一条 `fc-match` 应返回包含 `NotoSansCJK` 的字体文件。字体安装后必须完全关闭旧 Chromium，再使用第 9 节的脚本重新启动；已经打开的浏览器进程不会自动重新加载全部字体。
+
+字体只改变页面渲染，不改变代理协议标签。不要为了修字体在正式抓包运行期间执行 `apt install`；先停止并验收当前调试 PCAP，再安装字体。
+
+## 8. 第五步：一次启动，连续采集五份 1 GiB PCAP
 
 回到“终端 A（WSL）”。先刷新 sudo 凭据；抓包命令内部使用非交互 sudo，如果这里没有成功授权，抓包会立即退出：
 
@@ -240,7 +256,7 @@ export VPS_IP="47.103.159.9"
 sudo -v
 ```
 
-启动抓包：
+启动连续抓包。五个 `--profile` 的顺序就是五个 PCAP 的顺序：
 
 ```bash
 lab capture run \
@@ -248,16 +264,21 @@ lab capture run \
   --server-ip "$VPS_IP" \
   --server-port 24443 \
   --target-gib 1 \
-  --profile mixed \
+  --profile large-download \
+  --profile video \
+  --profile images-resources \
+  --profile web-news \
+  --profile other \
   --progress-interval 5 \
   --idle-seconds 15 \
   --idle-kib-per-second 32 \
   --finish-timeout 300
 ```
 
-看到下面两类信息才表示抓包已经开始：
+只需要执行这一次命令。看到下面信息才开始第一个“大文件下载”阶段：
 
 ```text
+READY segment 1/5: large-download
 Capturing class-05-vmess-websocket-tls on eth0 to .../capture.pcap
 Target: 1.00 GiB
 ```
@@ -265,10 +286,18 @@ Target: 1.00 GiB
 以及持续更新的进度：
 
 ```text
-[04:30:00Z] 256.20 MiB / 1.00 GiB (25.0%), current rate 2.31 MiB/s
+[segment 1/5 CAPTURING 04:30:00Z] 256.20 MiB / 1.00 GiB (25.0%), current rate 2.31 MiB/s
 ```
 
-这个终端必须保持前台运行。不要再在终端 A 输入其他命令。
+达到目标但当前动作尚未结束时，同一份 PCAP 会继续增长并明确显示：
+
+```text
+[segment 1/5 WAITING_FOR_IDLE 04:36:00Z] 1.12 GiB / 1.00 GiB (100.0%), overshoot 122.88 MiB, current rate 2.31 MiB/s
+```
+
+这仍是 segment 1，不是下一份。只有看到 `Segment 1/5 stopped` 和新的 `READY segment 2/5` 后，才真正创建了第二个 PCAP；第二份的大小、速率基线和百分比都会从零重新计算。
+
+这个终端必须保持前台运行。不要再在终端 A 输入其他命令，也不要手动重复启动抓包。程序会在自然空闲边界封尾当前文件并启动下一份；只有看到下一个 `READY segment N/5` 后，才能开始下一类访问。
 
 ## 9. 第六步：启动专用 Chromium
 
@@ -332,7 +361,11 @@ PY
 
 ## 10. 第七步：在 Chromium 中进行真实访问
 
-不要只循环访问 `example.com`，也不要只下载一个 1 GiB 文件。建议在一份 mixed PCAP 中组合以下行为：
+不要只循环访问 `example.com`，也不要只下载一个 1 GiB 文件。终端 A 显示的是 PCAP 文件进度，下面所有百分比都以终端 A 的进度为准，不要求网页下载量与 PCAP 字节完全相同。
+
+只使用专用 Chromium 做业务操作。不要用 `wget`、`curl` 或 Windows 浏览器补流量，因为它们默认不一定经过本次 SOCKS5 客户端。每次最多保留 1–2 个活动标签页，完成一个动作再开始下一个动作，避免变成人为高并发压测。
+
+五个 PCAP 合计应覆盖以下真实行为，但每一份按照自己的 profile 保持明确侧重：
 
 1. 浏览 5–10 个获准访问的真实站点。
 2. 打开首页、文章页、图片页，在页面内滚动、点击、返回和切换标签页。
@@ -341,15 +374,98 @@ PY
 5. 在不同动作之间保留数秒到几十秒的自然停顿。
 6. 让网页、小文件、较大下载和视频共同构成 PCAP，不要让单一长连接占据几乎全部字节。
 
-推荐把同一类别的五份 PCAP 做成不同侧重：
+### 10.1 连续轮转的固定规则
 
-| PCAP | 建议侧重 | 仍需包含的其他行为 |
-|---|---|---|
-| 1 | 普通网页、图片、脚本 | 少量下载和短视频 |
-| 2 | 视频播放、暂停、拖动 | 多站点网页和小文件 |
-| 3 | 不同大小的下载、取消、重试 | 网页和短视频 |
-| 4 | 网页、下载、视频较均衡 | 自然空闲间隔 |
-| 5 | 不同站点、不同时间段的混合行为 | 与前四份不同的访问顺序 |
+1. 五份只启动一次抓包命令、一次 Chromium；中间不手动重启。
+2. 当前段达到目标后，终端会要求完成当前 workload；此时不能开始下一类流量。
+3. 当前段流量连续空闲 15 秒后，程序封尾它并立即创建下一份 PCAP。
+4. 必须看到 `READY segment N/5` 后，才执行该段对应操作。
+5. 如果出现 `target_reached_finish_timeout` 或你按 `Ctrl+C`，整个五段序列终止，不会把仍活跃的流硬切进下一份。
+6. 五份共享同一个 `series_id`，它们不是五个独立浏览器会话。训练、验证、测试切分时必须整体放进同一分区。
+
+### 10.2 Segment 1/5：大文件下载
+
+抓包参数使用：
+
+```bash
+--profile large-download
+```
+
+按终端 A 的进度执行：
+
+- 看到 `READY segment 1/5: large-download` 后才开始下载。
+- 0%–70%：通过 Chromium 顺序下载多个获准文件，建议每个约 100–300 MiB；不要只用一个超大文件填满整份。
+- 70%–90%：改用约 50–100 MiB 文件，减小最终超出 1 GiB 的幅度。
+- 90%–100%：只开始一个预计能较快完成的文件。
+- 出现 `target reached` 后，让当前文件正常完成，不再开始新下载。
+- 当前下载完成后停止操作，等待 `READY segment 2/5: video`。
+
+### 10.3 Segment 2/5：视频
+
+抓包参数使用：
+
+```bash
+--profile video
+```
+
+按进度执行：
+
+- 只播放获准访问的公开视频，不进行文件下载。
+- 使用多个不同视频或片段，不要让一个视频连接贡献几乎全部字节。
+- 每段播放约 3–10 分钟，包含自然暂停、继续和一两次进度拖动。
+- 视频之间停顿约 5–20 秒，再开始下一个。
+- 出现 `target reached` 后，在当前片段的合适位置暂停并关闭该视频标签页；不要开始新视频。
+- 保持空闲，直到显示 `READY segment 3/5: images-resources`。
+
+### 10.4 Segment 3/5：图片和静态资源
+
+抓包参数使用：
+
+```bash
+--profile images-resources
+```
+
+按进度执行：
+
+- 浏览允许访问的图片页、图集、产品展示页、地图/图表页和静态资源较多的站点。
+- 打开原图或不同分辨率图片，正常滚动、翻页和站内跳转。
+- 每个站点操作数分钟后更换站点，避免反复刷新同一 URL 或自动爬取。
+- 不使用脚本批量请求，不用单个压缩包代替图片/资源访问。
+- 出现 `target reached` 后，等待当前页面资源加载完成，关闭活动标签页并停止操作。
+- 保持空闲，直到显示 `READY segment 4/5: web-news`。
+
+### 10.5 Segment 4/5：普通网页和新闻
+
+抓包参数使用：
+
+```bash
+--profile web-news
+```
+
+按进度执行：
+
+- 以正常人工节奏访问获准使用的新闻、文章、门户和普通内容站点。
+- 每个站点打开首页及 2–5 个内容页，执行滚动、站内跳转、返回和新标签页操作。
+- 每个页面停留约 10–60 秒；在站点之间保留自然停顿。
+- 不使用自动刷新、爬虫或高并发标签页来凑容量。纯网页达到 1 GiB 可能需要较长时间，这是正常现象。
+- 出现 `target reached` 后，让当前页面加载完成，关闭活动标签页并停止操作。
+- 保持空闲，直到显示 `READY segment 5/5: other`。
+
+### 10.6 Segment 5/5：其余真实行为
+
+抓包参数使用：
+
+```bash
+--profile other
+```
+
+- 组合前四类没有覆盖的正常行为，例如小文件上传/下载、表单页面、搜索、文档预览、音频或其他获准的交互内容。
+- 不登录私人账号，不提交敏感信息，不运行压测或爬虫。
+- 让多个真实动作共同构成该段，不要再用单一大文件填满。
+- 出现 `target reached` 后完成当前动作，关闭活动页面并保持空闲。
+- 最后一份封尾后，命令会输出五个会话目录并正常退出。
+
+以上百分比是操作边界，不要求精确到 1%。跨过边界时先完成当前动作，不要为了命中容量突然杀死浏览器或抓包。
 
 这些是通过真实浏览器、真实代理实现和真实网络产生的数据，不是伪造 PCAP。但“真实”不等于“随便堆满容量”：行为过于单一仍会导致数据偏差。
 
@@ -358,7 +474,7 @@ PY
 终端 A 达到 1 GiB 后会显示：
 
 ```text
-Target reached. Finish the current visit/download/video action; do not start another one.
+Segment 1/5 target reached. Finish the current workload; do not start the next workload yet.
 ```
 
 看到该提示后：
@@ -369,23 +485,51 @@ Target reached. Finish the current visit/download/video action; do not start ano
 4. 当前网页加载完成后停止操作。
 5. 视频不会自然结束流量时，应在合适位置暂停或关闭当前视频。
 
-达到目标后，程序在以下任一条件满足时停止：
+达到目标后，程序按以下规则处理：
 
-- 隧道流量连续 15 秒不高于 32 KiB/s；停止原因是 `target_reached_and_traffic_idle`。
-- 达到目标后继续等待了 300 秒；停止原因是 `target_reached_finish_timeout`。
+- 隧道流量连续 15 秒不高于 32 KiB/s：正常封尾当前 PCAP；还有后续段时立即启动下一份并显示 `READY`。
+- 达到目标后继续等待了 300 秒仍未空闲：当前 PCAP 以 `target_reached_finish_timeout` 停止，同时终止整个连续序列，不启动下一份，避免把活动流切开。
 
 加密后的 PCAP 无法直接理解“网页已经访问完成”这一业务语义，因此程序使用隧道吞吐空闲作为判断。最终 PCAP 通常会略大于 1 GiB，这是正常现象。
 
-抓包停止后，终端 A 会显示最终路径：
+每一段封尾后，终端 A 会显示该段路径：
 
 ```text
-Capture stopped: target_reached_and_traffic_idle; final size 1.02 GiB
+Segment 1/5 stopped: target_reached_and_traffic_idle; final size 1.02 GiB
 PCAP: /home/indole/proxy-lab-data/formal/.../capture.pcap
 ```
 
-抓包停止后再关闭专用 Chromium。不要继续使用已经停止记录的浏览器会话作为下一份 PCAP；下一份应重新启动 Chromium，以获得独立的浏览器上下文。
+前四段封尾后不要关闭 Chromium；等待下一条 `READY segment N/5`，再开始对应类别。第五段封尾、命令正常退出后再关闭 Chromium。
 
-如果需要提前停止，在终端 A 按一次 `Ctrl+C`。程序仍会正常封尾 PCAP，但未达到 1 GiB 的文件不能计入五份合格样本。
+如果需要提前停止，在终端 A 按一次 `Ctrl+C`。程序会正常封尾当前 PCAP，并停止整个连续序列；已经正常完成的前序 PCAP 保留，当前未达到 1 GiB 的文件不能计入合格样本。
+
+中断文件仍保存在 WSL，不会自动删除。立即查找最近一份：
+
+```bash
+find "$HOME/proxy-lab-data" \
+  -type f \
+  -name capture.pcap \
+  -printf '%T@ %s %p\n' |
+sort -nr |
+head -n 5
+```
+
+查看最近一次的停止原因：
+
+```bash
+LATEST_JSON="$(
+  find "$HOME/proxy-lab-data" \
+    -type f \
+    -name capture.json \
+    -printf '%T@ %p\n' |
+  sort -nr |
+  head -n 1 |
+  cut -d' ' -f2-
+)"
+
+jq '.capture | {file_bytes, target_bytes, target_met, stop_reason, tcpdump_log}' \
+  "$LATEST_JSON"
+```
 
 ## 12. 第八步：验收刚完成的 PCAP
 
@@ -411,13 +555,18 @@ echo "pcap=$PCAP"
 ### 12.1 检查自动停止结果
 
 ```bash
-jq '.capture | {
-  target_bytes,
-  file_bytes,
-  target_met,
-  stop_reason,
-  bpf,
-  tcpdump_log
+jq '{
+  series_id,
+  segment_index,
+  segment_count,
+  capture: (.capture | {
+    target_bytes,
+    file_bytes,
+    target_met,
+    stop_reason,
+    bpf,
+    tcpdump_log
+  })
 }' "$CAPTURE_JSON"
 ```
 
@@ -425,7 +574,7 @@ jq '.capture | {
 
 - `target_met` 为 `true`。
 - `file_bytes` 不小于 `1073741824`。
-- `stop_reason` 通常为 `target_reached_and_traffic_idle`；兜底超时也可接受，但需要确认不是在活跃下载中被截断。
+- 前四段的 `stop_reason` 必须为 `target_reached_and_traffic_idle`，否则序列不会进入下一段。最后一段若是兜底超时，需要确认不是在活跃动作中被截断。
 - `tcpdump_log` 中的 `packets dropped by kernel` 应为 0，或至少不能持续出现明显丢包。
 
 ### 12.2 检查大小和可读性
@@ -450,7 +599,7 @@ capinfos "$PCAP"
 UNEXPECTED="$(
   tshark \
     -r "$PCAP" \
-    -Y "not (ip.addr == $VPS_IP && tcp.port == 24443)" \
+    -Y "not (ip.addr == $VPS_IP and tcp.port == 24443)" \
     -T fields \
     -e frame.number \
     -c 1
@@ -480,7 +629,7 @@ STREAMS="$(
 echo "outer TCP streams: $STREAMS"
 ```
 
-流数量不是唯一质量标准，但 mixed 样本只有一个长连接通常说明行为过于单一，应重新采集更丰富的访问组合。
+流数量不是唯一质量标准。即使是大文件或视频段，也不建议让一个连接贡献几乎全部字节；其他 profile 更应包含多个真实连接。
 
 ### 12.5 生成完整性哈希
 
@@ -490,20 +639,20 @@ sha256sum "$PCAP" | tee "$SESSION_DIR/manifest.sha256"
 
 验收完成前不要删除浏览器下载内容或会话记录以外的证据；确认 PCAP 合格后再整理临时下载文件。
 
-## 13. 第九步：重复采集到五份
+## 13. 第九步：确认连续五份全部完成
 
-每份 PCAP 都按以下顺序执行：
+连续模式按以下顺序执行：
 
 1. 确认服务端健康。
 2. 确认客户端健康并通过 curl 得到 HTTP 200。
-3. 在终端 A 启动新的 `lab capture run`。
-4. 在终端 B 启动一个新的专用 Chromium 上下文。
-5. 执行与上一份不同侧重的真实访问行为。
-6. 达到目标后完成当前动作并等待自动停止。
-7. 关闭 Chromium。
-8. 运行全部验收命令并生成 SHA-256。
+3. 在终端 A 只启动一次带五个 `--profile` 的 `lab capture run`。
+4. 在终端 B 只启动一次专用 Chromium。
+5. 严格按照五条 `READY segment N/5` 提示切换行为类别。
+6. 每段达到目标后完成当前动作并等待空闲轮转，不按 `Ctrl+C`。
+7. 第五段封尾、抓包命令退出后关闭 Chromium。
+8. 分别验收五个 PCAP 并生成 SHA-256。
 
-每次 `lab capture run` 都会创建带时间和随机 ID 的新目录，不会覆盖上一份。
+每一段都会创建带时间和随机 ID 的独立目录，不会覆盖上一份；五份 `capture.json` 记录相同的 `series_id` 和各自的 `segment_index`。
 
 列出本类别全部 PCAP：
 

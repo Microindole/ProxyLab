@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from proxy_traffic_lab.capture.experiment import (
-    run_size_limited_capture,
+    run_segmented_capture,
     run_web_capture,
 )
 from proxy_traffic_lab.controller.config import (
@@ -129,7 +129,15 @@ def build_parser() -> argparse.ArgumentParser:
     capture_run.add_argument("--server-ip", required=True)
     capture_run.add_argument("--server-port", required=True, type=int)
     capture_run.add_argument("--target-gib", type=float, default=1.0)
-    capture_run.add_argument("--profile", default="mixed")
+    capture_run.add_argument(
+        "--profile",
+        action="append",
+        dest="profiles",
+        help=(
+            "profile for one PCAP; repeat to capture multiple PCAPs in sequence "
+            "without restarting the command"
+        ),
+    )
     capture_run.add_argument("--interface")
     capture_run.add_argument("--progress-interval", type=float, default=5.0)
     capture_run.add_argument("--idle-seconds", type=float, default=15.0)
@@ -300,20 +308,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise LabError(f"unknown protocol case: {args.case}")
             if args.target_gib <= 0:
                 raise LabError("--target-gib must be positive")
-            session_dir = run_size_limited_capture(
+            session_dirs = run_segmented_capture(
                 case=case,
                 server_ip=args.server_ip,
                 server_port=args.server_port,
                 target_bytes=round(args.target_gib * 1024**3),
                 output_root=args.output_root,
-                profile=args.profile,
+                profiles=args.profiles or ["mixed"],
                 interface=args.interface,
                 progress_interval_seconds=args.progress_interval,
                 idle_seconds=args.idle_seconds,
                 idle_bytes_per_second=args.idle_kib_per_second * 1024,
                 finish_timeout_seconds=args.finish_timeout,
             )
-            print(f"Capture session written: {session_dir}")
+            print("Capture sessions written:")
+            for session_dir in session_dirs:
+                print(f"  {session_dir}")
             return 0
 
         if args.command == "experiment" and args.experiment_command == "web":

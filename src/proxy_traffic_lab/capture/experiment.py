@@ -36,7 +36,38 @@ def run_size_limited_capture(
     idle_bytes_per_second: float = 32 * 1024,
     finish_timeout_seconds: float = 300.0,
 ) -> Path:
-    """Capture existing traffic until the size target and a quiet period are met."""
+    """Capture one size-limited PCAP (backward-compatible single segment)."""
+    sessions = run_segmented_capture(
+        case=case,
+        server_ip=server_ip,
+        server_port=server_port,
+        target_bytes=target_bytes,
+        output_root=output_root,
+        profiles=(profile,),
+        interface=interface,
+        progress_interval_seconds=progress_interval_seconds,
+        idle_seconds=idle_seconds,
+        idle_bytes_per_second=idle_bytes_per_second,
+        finish_timeout_seconds=finish_timeout_seconds,
+    )
+    return sessions[0]
+
+
+def run_segmented_capture(
+    *,
+    case: ProtocolCase,
+    server_ip: str,
+    server_port: int,
+    target_bytes: int,
+    output_root: Path,
+    profiles: Sequence[str],
+    interface: str | None = None,
+    progress_interval_seconds: float = 5.0,
+    idle_seconds: float = 15.0,
+    idle_bytes_per_second: float = 32 * 1024,
+    finish_timeout_seconds: float = 300.0,
+) -> tuple[Path, ...]:
+    """Capture multiple PCAPs, rotating only after a post-target quiet period."""
     if not case.enabled:
         raise ConfigurationError(f"protocol case is disabled: {case.id}")
     if target_bytes <= 24:
@@ -47,11 +78,80 @@ def run_size_limited_capture(
         raise ConfigurationError("idle thresholds cannot be negative")
     if finish_timeout_seconds <= 0:
         raise ConfigurationError("finish timeout must be positive")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", profile):
-        raise ConfigurationError("profile contains unsupported characters")
+    if not profiles:
+        raise ConfigurationError("at least one capture profile is required")
+    for profile in profiles:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", profile):
+            raise ConfigurationError(
+                f"profile contains unsupported characters: {profile}"
+            )
 
     selected_interface = interface or _route_interface(server_ip)
     capture_filter = tunnel_bpf(server_ip, server_port, case.outer_transport)
+    series_started_at = datetime.now(UTC)
+    series_id = (
+        f"{series_started_at.strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid.uuid4().hex[:10]}"
+    )
+    sessions: list[Path] = []
+    segment_count = len(profiles)
+
+    for segment_index, profile in enumerate(profiles, start=1):
+        if segment_index > 1:
+            print(
+                f"Starting segment {segment_index}/{segment_count}: {profile}. "
+                "Wait for the READY message before beginning the next workload.",
+                flush=True,
+            )
+        session_dir, stop_reason = _capture_size_segment(
+            case=case,
+            server_ip=server_ip,
+            server_port=server_port,
+            target_bytes=target_bytes,
+            output_root=output_root,
+            profile=profile,
+            selected_interface=selected_interface,
+            capture_filter=capture_filter,
+            progress_interval_seconds=progress_interval_seconds,
+            idle_seconds=idle_seconds,
+            idle_bytes_per_second=idle_bytes_per_second,
+            finish_timeout_seconds=finish_timeout_seconds,
+            series_id=series_id,
+            segment_index=segment_index,
+            segment_count=segment_count,
+        )
+        sessions.append(session_dir)
+        if segment_index == segment_count:
+            break
+        if stop_reason != "target_reached_and_traffic_idle":
+            print(
+                f"Series stopped after segment {segment_index}: {stop_reason}. "
+                "No new PCAP was started because the previous flow boundary was not idle.",
+                flush=True,
+            )
+            break
+
+    return tuple(sessions)
+
+
+def _capture_size_segment(
+    *,
+    case: ProtocolCase,
+    server_ip: str,
+    server_port: int,
+    target_bytes: int,
+    output_root: Path,
+    profile: str,
+    selected_interface: str,
+    capture_filter: str,
+    progress_interval_seconds: float,
+    idle_seconds: float,
+    idle_bytes_per_second: float,
+    finish_timeout_seconds: float,
+    series_id: str,
+    segment_index: int,
+    segment_count: int,
+) -> tuple[Path, str]:
     started_at = datetime.now(UTC)
     sample_id = f"{started_at.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
     session_dir = (
@@ -71,6 +171,7 @@ def run_size_limited_capture(
     previous_time = time.monotonic()
     previous_size = 0
     print(
+        f"READY segment {segment_index}/{segment_count}: {profile}\n"
         f"Capturing {case.id} on {selected_interface} to {pcap_path}\n"
         f"Target: {_format_bytes(target_bytes)}; after target, stop when traffic stays "
         f"at or below {_format_bytes(int(idle_bytes_per_second))}/s for "
@@ -90,10 +191,17 @@ def run_size_limited_capture(
             interval = max(now - previous_time, 0.001)
             rate = max(size - previous_size, 0) / interval
             percent = min(size / target_bytes * 100, 100.0)
+            phase = "WAITING_FOR_IDLE" if size >= target_bytes else "CAPTURING"
+            overshoot = max(size - target_bytes, 0)
+            overshoot_text = (
+                f", overshoot {_format_bytes(overshoot)}" if overshoot else ""
+            )
             print(
-                f"[{datetime.now(UTC).strftime('%H:%M:%S')}Z] "
+                f"[segment {segment_index}/{segment_count} {phase} "
+                f"{datetime.now(UTC).strftime('%H:%M:%S')}Z] "
                 f"{_format_bytes(size)} / {_format_bytes(target_bytes)} "
-                f"({percent:5.1f}%), current rate {_format_bytes(int(rate))}/s",
+                f"({percent:5.1f}%){overshoot_text}, "
+                f"current rate {_format_bytes(int(rate))}/s",
                 flush=True,
             )
             if process.poll() is not None:
@@ -104,8 +212,8 @@ def run_size_limited_capture(
                 if target_reached_at is None:
                     target_reached_at = now
                     print(
-                        "Target reached. Finish the current visit/download/video action; "
-                        "do not start another one.",
+                        f"Segment {segment_index}/{segment_count} target reached. "
+                        "Finish the current workload; do not start the next workload yet.",
                         flush=True,
                     )
                 if rate <= idle_bytes_per_second:
@@ -131,6 +239,9 @@ def run_size_limited_capture(
     metadata = {
         "schema_version": "1.0.0",
         "sample_id": sample_id,
+        "series_id": series_id,
+        "segment_index": segment_index,
+        "segment_count": segment_count,
         "case_id": case.id,
         "profile": profile,
         "capture": {
@@ -151,11 +262,12 @@ def run_size_limited_capture(
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(
-        f"Capture stopped: {stop_reason}; final size {_format_bytes(final_size)}\n"
+        f"Segment {segment_index}/{segment_count} stopped: {stop_reason}; "
+        f"final size {_format_bytes(final_size)}\n"
         f"PCAP: {pcap_path}",
         flush=True,
     )
-    return session_dir
+    return session_dir, stop_reason
 
 
 def _format_bytes(value: int) -> str:
