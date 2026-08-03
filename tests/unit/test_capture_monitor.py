@@ -49,14 +49,38 @@ def test_capture_run_accepts_repeated_profiles() -> None:
     assert args.profiles == ["large-download", "video"]
 
 
+def test_capture_run_accepts_flow_limits() -> None:
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "run",
+            "--case",
+            "class-05-vmess-websocket-tls",
+            "--server-ip",
+            "203.0.113.10",
+            "--server-port",
+            "24443",
+            "--target-flows",
+            "3000",
+        ]
+    )
+    assert args.target_flows == 3000
+
+
 def test_segmented_capture_rotates_only_after_idle(monkeypatch) -> None:
     calls: list[str] = []
+    sudo_refreshes: list[None] = []
 
     def fake_segment(**kwargs):
         calls.append(kwargs["profile"])
         return Path(f"/{kwargs['profile']}"), "target_reached_and_traffic_idle"
 
     monkeypatch.setattr(experiment, "_capture_size_segment", fake_segment)
+    monkeypatch.setattr(
+        experiment,
+        "_ensure_sudo_credentials",
+        lambda: sudo_refreshes.append(None),
+    )
     case = SimpleNamespace(enabled=True, id="case-05", outer_transport="tcp")
     sessions = experiment.run_segmented_capture(
         case=case,
@@ -68,6 +92,7 @@ def test_segmented_capture_rotates_only_after_idle(monkeypatch) -> None:
         interface="eth0",
     )
     assert calls == ["download", "video"]
+    assert len(sudo_refreshes) == 2
     assert sessions == (Path("/download"), Path("/video"))
 
 
@@ -79,6 +104,7 @@ def test_segmented_capture_does_not_split_an_active_flow(monkeypatch) -> None:
         return Path(f"/{kwargs['profile']}"), "target_reached_finish_timeout"
 
     monkeypatch.setattr(experiment, "_capture_size_segment", fake_segment)
+    monkeypatch.setattr(experiment, "_ensure_sudo_credentials", lambda: None)
     case = SimpleNamespace(enabled=True, id="case-05", outer_transport="tcp")
     sessions = experiment.run_segmented_capture(
         case=case,

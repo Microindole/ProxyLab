@@ -12,6 +12,8 @@ from proxy_traffic_lab.providers.xray import (
     render_vless_tls_server,
     render_vmess_websocket_tls_client,
     render_vmess_websocket_tls_server,
+    render_vmess_xhttp_h2_tls_client,
+    render_vmess_xhttp_h2_tls_server,
     validate_generated_client_address,
     validate_official_image_digest,
 )
@@ -65,6 +67,32 @@ def test_class_05_client_matches_server_and_pins_certificate() -> None:
     assert outbound["protocol"] == "vmess"
     assert outbound_stream["wsSettings"]["path"] == inbound_stream["wsSettings"]["path"]
     assert outbound_stream["wsSettings"]["host"] == inbound_stream["wsSettings"]["host"]
+    assert outbound_stream["tlsSettings"]["pinnedPeerCertSha256"] == "a" * 64
+    assert "allowInsecure" not in outbound_stream["tlsSettings"]
+
+
+def test_class_06_server_uses_vmess_xhttp_h2_tls() -> None:
+    config = render_vmess_xhttp_h2_tls_server(_material(), port=24443)
+    inbound = config["inbounds"][0]
+    stream = inbound["streamSettings"]
+    assert inbound["protocol"] == "vmess"
+    assert inbound["settings"]["clients"][0]["id"] == _material().client_id
+    assert stream["method"] == "xhttp"
+    assert stream["security"] == "tls"
+    assert stream["xhttpSettings"]["path"].startswith("/xhttp/")
+    assert stream["xhttpSettings"]["mode"] == "stream-up"
+    assert stream["tlsSettings"]["alpn"] == ["h2"]
+
+
+def test_class_06_client_matches_server_and_pins_certificate() -> None:
+    server = render_vmess_xhttp_h2_tls_server(_material(), port=24443)
+    client = render_vmess_xhttp_h2_tls_client(
+        _material(), server_address="203.0.113.10", server_port=24443
+    )
+    inbound_stream = server["inbounds"][0]["streamSettings"]
+    outbound_stream = client["outbounds"][0]["streamSettings"]
+    assert outbound_stream["xhttpSettings"] == inbound_stream["xhttpSettings"]
+    assert outbound_stream["tlsSettings"]["alpn"] == ["h2"]
     assert outbound_stream["tlsSettings"]["pinnedPeerCertSha256"] == "a" * 64
     assert "allowInsecure" not in outbound_stream["tlsSettings"]
 

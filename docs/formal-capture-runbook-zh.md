@@ -1,5 +1,7 @@
 # 正式 PCAP 采集操作手册（WSL 客户端 + 阿里云服务器）
 
+> 已过时：本手册按 1 GiB 分段，不符合当前“每份约 3000 个完整外层流”的要求。新的正式流程见 `docs/flow-limited-capture-runbook-zh.md`。本文件只保留作历史参考。
+
 ## 1. 本手册的适用范围
 
 本手册用于采集代理客户端与阿里云代理服务器之间的真实隧道流量。当前已经端到端验证、可以正式采集的是：
@@ -58,11 +60,11 @@
 
 - 终端 S：阿里云服务器终端，只负责服务端。
 - 终端 A：WSL 抓包终端，前台运行 `lab capture run`。
-- 终端 B：WSL Chromium 终端，启动显示在 Windows 桌面的 WSLg Chromium。
+- 终端 B：Windows PowerShell，只负责启动强制使用 WSL SOCKS5 的专用 Chrome。
 
 不需要在 WSL 命令里反复套 `ssh`。只有复制新客户端配置时才需要 `scp`。
 
-建议同时关闭普通 Windows Chrome、Edge 等无关浏览器，避免误操作和带宽竞争。
+建议同时关闭普通 Chrome、Edge 等无关浏览器，避免误操作和带宽竞争。专用 Chrome 使用独立用户目录，与日常 Chrome 分开。
 
 ## 4. 第一步：检查阿里云服务端
 
@@ -187,62 +189,26 @@ lab client logs --tail 100
 lab server logs --tail 100
 ```
 
-## 7. 第四步：确认 WSLg 和 Chromium
+## 7. 第四步：确认 Windows 可以连接 WSL SOCKS5
 
-在“终端 B（WSL）”执行：
-
-```bash
-cd ~/proxy-traffic-lab
-. .venv/bin/activate
-
-echo "DISPLAY=$DISPLAY"
-echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
-ls -ld /mnt/wslg
-```
-
-`DISPLAY` 或 `WAYLAND_DISPLAY` 应有值，并且 `/mnt/wslg` 应存在。如果没有，在 Windows PowerShell 执行：
+在“终端 B（Windows PowerShell）”执行，必须得到 `HTTP=200`：
 
 ```powershell
-wsl --shutdown
+curl.exe `
+  --fail `
+  --silent `
+  --show-error `
+  --socks5-hostname 127.0.0.1:10808 `
+  --connect-timeout 10 `
+  --max-time 30 `
+  --output NUL `
+  --write-out "HTTP=%{http_code}`n" `
+  https://example.com/
 ```
 
-然后重新打开 Ubuntu，再继续本手册。执行 `wsl --shutdown` 前必须先停止正在进行的抓包。
+这验证了 Windows 应用可以进入 WSL 中的 Xray 客户端。正式 PCAP 仍由 WSL 在 `eth0` 上抓取到阿里云端口的外层隧道；Windows 到 `127.0.0.1:10808` 的本地转发段不会混入该 PCAP。
 
-检查 Playwright 和浏览器：
-
-```bash
-export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-
-python -c 'from playwright.sync_api import sync_playwright; print("Playwright: OK")'
-python -m playwright install --list
-```
-
-如果第一条出现 `ModuleNotFoundError`，使用已有离线 wheel 安装：
-
-```bash
-python -m pip install \
-  --no-index \
-  --find-links "$HOME/playwright-wheelhouse" \
-  playwright
-```
-
-本手册要求使用 WSL 中由 Playwright 启动的 Chromium。窗口会通过 WSLg 显示在 Windows 桌面，但浏览器进程和代理配置属于 WSL。不要用普通 Windows Chrome 替代。
-
-### 7.1 Chromium 中文显示为方框
-
-这表示 WSL 中缺少中文字体，不是网页、代理或抓包故障。关闭 Chromium，然后在 WSL 安装字体：
-
-```bash
-sudo apt install -y fonts-noto-cjk fonts-noto-color-emoji
-fc-cache -f
-
-fc-match 'Noto Sans CJK SC'
-fc-match emoji
-```
-
-第一条 `fc-match` 应返回包含 `NotoSansCJK` 的字体文件。字体安装后必须完全关闭旧 Chromium，再使用第 9 节的脚本重新启动；已经打开的浏览器进程不会自动重新加载全部字体。
-
-字体只改变页面渲染，不改变代理协议标签。不要为了修字体在正式抓包运行期间执行 `apt install`；先停止并验收当前调试 PCAP，再安装字体。
+不要再使用 WSLg/Playwright Chromium 进行正式采集。WSLg 窗口可能出现不可见、方框字体或任务栏幽灵窗口；Windows 专用 Chrome 更稳定，并且已经通过上述 SOCKS 测试保证走同一条 Xray 隧道。
 
 ## 8. 第五步：一次启动，连续采集五份 1 GiB PCAP
 
@@ -255,6 +221,8 @@ export VPS_IP="47.103.159.9"
 
 sudo -v
 ```
+
+当前版本会在连续采集期间每 60 秒自动续期 sudo 凭据，并在启动每个新 segment 前再次检查，因此长时间采集不会再因 sudo 缓存超时而中断。不要另开终端执行 `sudo -k` 或修改 sudo 时间戳。
 
 启动连续抓包。五个 `--profile` 的顺序就是五个 PCAP 的顺序：
 
@@ -299,63 +267,20 @@ Target: 1.00 GiB
 
 这个终端必须保持前台运行。不要再在终端 A 输入其他命令，也不要手动重复启动抓包。程序会在自然空闲边界封尾当前文件并启动下一份；只有看到下一个 `READY segment N/5` 后，才能开始下一类访问。
 
-## 9. 第六步：启动专用 Chromium
+## 9. 第六步：启动 Windows 专用 Chrome
 
-确认终端 A 已经显示抓包进度后，在“终端 B（WSL）”执行：
+确认终端 A 已经显示抓包进度后，在“终端 B（Windows PowerShell）”执行：
 
-```bash
-cd ~/proxy-traffic-lab
-. .venv/bin/activate
-
-unset HTTP_PROXY HTTPS_PROXY ALL_PROXY
-unset http_proxy https_proxy all_proxy
-export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-
-python - <<'PY'
-from playwright.sync_api import Error, sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(
-        channel="chromium",
-        headless=False,
-        args=[
-            "--disable-quic",
-            "--disable-background-networking",
-            "--disable-component-update",
-            "--disable-sync",
-            "--no-first-run",
-        ],
-    )
-
-    context = browser.new_context(
-        proxy={"server": "socks5://127.0.0.1:10808"},
-        accept_downloads=True,
-        viewport={"width": 1366, "height": 768},
-        locale="zh-CN",
-    )
-
-    page = context.new_page()
-    page.goto(
-        "https://example.com/",
-        wait_until="domcontentloaded",
-        timeout=30000,
-    )
-
-    print("专用 Chromium 已启动，并通过 127.0.0.1:10808 访问。")
-    print("请在浏览器窗口中手动操作；完成后直接关闭浏览器窗口。")
-
-    try:
-        while True:
-            page.wait_for_timeout(1000)
-    except KeyboardInterrupt:
-        print("收到 Ctrl+C，正在关闭 Chromium。")
-    except Error:
-        print("Chromium 窗口已经关闭。")
-    finally:
-        if browser.is_connected():
-            browser.close()
-PY
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  "\\wsl.localhost\Ubuntu\home\indole\proxy-traffic-lab\scripts\launch_capture_chrome.ps1"
 ```
+
+脚本会先用 Windows `curl.exe` 验证 SOCKS5；验证失败时不会启动浏览器。验证成功后，它会清理上一次专用配置残留的后台进程，再打开标题类似 `Example Domain - Google Chrome` 的窗口。
+
+如果关闭了这个窗口，直接重新执行上面同一条 PowerShell 命令即可。不要重启抓包、不要重启 Xray，也不要执行 `wsl --shutdown`。重新打开浏览器期间 PCAP 只会出现一段自然空闲。
+
+专用配置目录是 `%LOCALAPPDATA%\ProxyLab\ChromeProfile`，下载默认保存到 `%USERPROFILE%\Downloads`。它不是日常 Chrome 配置；不要在这个专用窗口登录私人账号或安装代理扩展。
 
 必须保留 `--disable-quic`。当前第 5 类的内层网页流量应走 TCP，避免 Chromium 使用普通 QUIC/HTTP3 后因为 SOCKS5 UDP 支持差异导致流量绕行或失败。以后采集 UDP 类别和 Hysteria2 时必须使用适合相应类别的客户端与流量方案，不能照搬此参数组合。
 
@@ -363,7 +288,7 @@ PY
 
 不要只循环访问 `example.com`，也不要只下载一个 1 GiB 文件。终端 A 显示的是 PCAP 文件进度，下面所有百分比都以终端 A 的进度为准，不要求网页下载量与 PCAP 字节完全相同。
 
-只使用专用 Chromium 做业务操作。不要用 `wget`、`curl` 或 Windows 浏览器补流量，因为它们默认不一定经过本次 SOCKS5 客户端。每次最多保留 1–2 个活动标签页，完成一个动作再开始下一个动作，避免变成人为高并发压测。
+只使用脚本启动的 Windows 专用 Chrome 做业务操作。不要用 `wget`、普通 `curl`、日常 Chrome 或 Edge 补流量，因为它们默认不经过本次 SOCKS5 客户端。每次最多保留 1–2 个活动标签页，完成一个动作再开始下一个动作，避免变成人为高并发压测。
 
 五个 PCAP 合计应覆盖以下真实行为，但每一份按照自己的 profile 保持明确侧重：
 
@@ -720,11 +645,11 @@ lab capture run --help
 command -v tcpdump
 ```
 
-### 14.2 Chromium 一闪而过
+### 14.2 专用 Chrome 被关闭或窗口不可见
 
-不要在 heredoc 脚本中使用 `input()`；脚本本身已经从标准输入读取，`input()` 会立即遇到 EOF。本手册的 Chromium 脚本通过循环保持运行，关闭窗口或按 `Ctrl+C` 才结束。
+不要尝试恢复旧的 WSLg Chromium，也不要执行 `wsl --shutdown`。重新执行第 9 节的 PowerShell 启动命令；脚本会关闭专用配置残留进程并创建新的 Windows 原生窗口。抓包正在运行时也可以这样恢复，当前 PCAP 不会被关闭。
 
-### 14.3 Chromium 报 `ERR_PROXY_CONNECTION_FAILED`
+### 14.3 Chrome 报 `ERR_PROXY_CONNECTION_FAILED`
 
 检查：
 
@@ -761,3 +686,32 @@ ss -lnt | grep '127.0.0.1:10808'
 - SOCKS5 curl 测试返回 HTTP 200。
 
 任何一项不满足，都不要继续正式采集。
+
+### 14.7 新 segment 报 `sudo: a password is required`
+
+这是旧版本在前几个 segment 耗时较长后 sudo 缓存过期导致的。已经显示 `target_reached_and_traffic_idle` 的 PCAP 有效，不需要重采；报错 segment 的空文件或不足目标文件不能计入正式样本。
+
+先确认已经使用包含 sudo 自动续期修复的最新代码，然后重新授权，只启动尚未完成的 profile。例如前两份已完成而第三份启动失败时：
+
+```bash
+cd ~/proxy-traffic-lab
+. .venv/bin/activate
+export VPS_IP="47.103.159.9"
+
+sudo -v
+
+lab capture run \
+  --case class-05-vmess-websocket-tls \
+  --server-ip "$VPS_IP" \
+  --server-port 24443 \
+  --target-gib 1 \
+  --profile images-resources \
+  --profile web-news \
+  --profile other \
+  --progress-interval 5 \
+  --idle-seconds 15 \
+  --idle-kib-per-second 32 \
+  --finish-timeout 300
+```
+
+这三份会获得新的 `series_id`；前两份仍保留原 `series_id`。后续做训练、验证、测试切分时，以 `series_id` 为组整体切分即可，不要把同一系列拆到不同分区。
