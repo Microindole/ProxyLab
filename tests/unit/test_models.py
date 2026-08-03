@@ -13,7 +13,8 @@ def test_accepts_complete_target_matrix() -> None:
     matrix = ProtocolMatrix.model_validate(_matrix_document())
     assert [case.dataset_class for case in matrix.cases] == list(range(1, 13))
     assert [case.id for case in matrix.cases if case.enabled] == [
-        "class-05-vmess-websocket-tls"
+        "class-05-vmess-websocket-tls",
+        "class-06-vmess-xhttp-h2-tls",
     ]
 
 
@@ -21,6 +22,13 @@ def test_rejects_mislabeled_class_05() -> None:
     document = _matrix_document()
     document["cases"][4]["security"] = "none"  # type: ignore[index]
     with pytest.raises(ValidationError, match="class 5 must be"):
+        ProtocolMatrix.model_validate(document)
+
+
+def test_rejects_mislabeled_class_06() -> None:
+    document = _matrix_document()
+    document["cases"][5]["obfs_mode"] = "h3"  # type: ignore[index]
+    with pytest.raises(ValidationError, match="class 6 must be"):
         ProtocolMatrix.model_validate(document)
 
 

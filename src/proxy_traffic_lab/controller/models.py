@@ -101,6 +101,18 @@ class ProtocolCase(StrictModel):
             )
             if not expected:
                 raise ValueError("class 5 must be VMess + WebSocket + TLS on Xray")
+        if self.dataset_class == 6:
+            expected = (
+                self.protocol == "vmess"
+                and self.client == "xray"
+                and self.server == "xray"
+                and self.outer_transport == "tcp"
+                and self.wrapper == "xhttp"
+                and self.security == "tls"
+                and self.obfs_mode == "h2"
+            )
+            if not expected:
+                raise ValueError("class 6 must be VMess + XHTTP + H2 + TLS on Xray")
         return self
 
 

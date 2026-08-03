@@ -78,7 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument(
         "--case",
         default="vless-tcp-tls",
-        choices=["vless-tcp-tls", "class-05-vmess-websocket-tls"],
+        choices=[
+            "vless-tcp-tls",
+            "class-05-vmess-websocket-tls",
+            "class-06-vmess-xhttp-h2-tls",
+        ],
         help="protocol case to render (default keeps the original smoke case)",
     )
     render.add_argument("--server-address", required=True)
@@ -128,7 +132,20 @@ def build_parser() -> argparse.ArgumentParser:
     capture_run.add_argument("--case", required=True, help="enabled protocol case id")
     capture_run.add_argument("--server-ip", required=True)
     capture_run.add_argument("--server-port", required=True, type=int)
-    capture_run.add_argument("--target-gib", type=float, default=1.0)
+    capture_run.add_argument(
+        "--target-gib",
+        type=float,
+        default=1.0,
+        help="size target used only when --target-flows is omitted",
+    )
+    capture_run.add_argument(
+        "--target-flows",
+        type=int,
+        help=(
+            "outer TCP connection target; after reaching it, wait for all active "
+            "flows to close instead of cutting the PCAP"
+        ),
+    )
     capture_run.add_argument(
         "--profile",
         action="append",
@@ -308,11 +325,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise LabError(f"unknown protocol case: {args.case}")
             if args.target_gib <= 0:
                 raise LabError("--target-gib must be positive")
+            if args.target_flows is not None and args.target_flows <= 0:
+                raise LabError("--target-flows must be positive")
             session_dirs = run_segmented_capture(
                 case=case,
                 server_ip=args.server_ip,
                 server_port=args.server_port,
-                target_bytes=round(args.target_gib * 1024**3),
+                target_bytes=(
+                    None
+                    if args.target_flows is not None
+                    else round(args.target_gib * 1024**3)
+                ),
+                target_flows=args.target_flows,
                 output_root=args.output_root,
                 profiles=args.profiles or ["mixed"],
                 interface=args.interface,

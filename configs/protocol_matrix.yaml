@@ -67,7 +67,7 @@ cases:
 
   - id: class-06-vmess-xhttp-h2-tls
     dataset_class: 6
-    enabled: false
+    enabled: true
     protocol: vmess
     client: xray
     server: xray
