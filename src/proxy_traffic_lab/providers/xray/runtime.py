@@ -1,13 +1,16 @@
+"""Shared official Xray image, configuration, and container runtime adapter."""
+
 from __future__ import annotations
 
+import hashlib
+import ipaddress
 import json
 import os
 import re
-import uuid
-import ipaddress
 import socket
-from datetime import UTC, datetime
+import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +20,7 @@ from proxy_traffic_lab.controller.subprocesses import run_command
 # GitHub release tags include a leading "v", while GHCR image tags do not.
 XRAY_OFFICIAL_IMAGE_TAG = "ghcr.io/xtls/xray-core:26.2.6"
 XRAY_SERVER_CONTAINER = "proxy-traffic-lab-xray"
+XRAY_CLIENT_CONTAINER = "proxy-traffic-lab-client"
 IMAGE_DIGEST_PATTERN = re.compile(
     r"^ghcr\.io/xtls/xray-core@sha256:[0-9a-f]{64}$"
 )
@@ -87,6 +91,7 @@ def create_vless_tls_material(
                 "client_id": client_id,
                 "server_name": server_name,
                 "certificate_sha256": fingerprint,
+                "websocket_path": f"/assets/{uuid.UUID(client_id).hex[:16]}",
             },
             indent=2,
         )
@@ -251,6 +256,151 @@ def render_vless_tls_client(
     }
 
 
+def render_vmess_websocket_tls_server(
+    material: VlessTlsMaterial,
+    *,
+    port: int,
+    certificate_container_path: str = "/run/secrets/xray/server.crt",
+    private_key_container_path: str = "/run/secrets/xray/server.key",
+) -> dict[str, Any]:
+    """Render class 5 using Xray's VMess, WebSocket and TLS implementations."""
+    _validate_port(port)
+    websocket_path = _websocket_path(material.client_id)
+    return {
+        "log": {"loglevel": "warning", "access": "none"},
+        "inbounds": [
+            {
+                "tag": "class-05-vmess-websocket-tls-in",
+                "listen": "0.0.0.0",
+                "port": port,
+                "protocol": "vmess",
+                "settings": {
+                    "users": [
+                        {
+                            "id": material.client_id,
+                            "level": 0,
+                            "email": "class-05-collector",
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "method": "websocket",
+                    "security": "tls",
+                    "wsSettings": {
+                        "path": websocket_path,
+                        "host": material.server_name,
+                        "acceptProxyProtocol": False,
+                    },
+                    "tlsSettings": {
+                        "rejectUnknownSni": True,
+                        "minVersion": "1.3",
+                        "alpn": ["http/1.1"],
+                        "certificates": [
+                            {
+                                "certificateFile": certificate_container_path,
+                                "keyFile": private_key_container_path,
+                            }
+                        ],
+                    },
+                },
+            }
+        ],
+        "outbounds": [
+            {"tag": "direct", "protocol": "freedom"},
+            {"tag": "block", "protocol": "blackhole"},
+        ],
+        "routing": _server_routing(),
+    }
+
+
+def render_vmess_websocket_tls_client(
+    material: VlessTlsMaterial,
+    *,
+    server_address: str,
+    server_port: int,
+    socks_port: int = 10808,
+) -> dict[str, Any]:
+    _validate_port(server_port)
+    _validate_port(socks_port)
+    normalized_server_address = _normalize_server_address(server_address)
+    return {
+        "log": {"loglevel": "warning", "access": "none"},
+        "inbounds": [
+            {
+                "tag": "socks-in",
+                "listen": "127.0.0.1",
+                "port": socks_port,
+                "protocol": "socks",
+                "settings": {"udp": False},
+            }
+        ],
+        "outbounds": [
+            {
+                "tag": "proxy",
+                "protocol": "vmess",
+                "settings": {
+                    "address": normalized_server_address,
+                    "port": server_port,
+                    "id": material.client_id,
+                },
+                "streamSettings": {
+                    "method": "websocket",
+                    "security": "tls",
+                    "wsSettings": {
+                        "path": _websocket_path(material.client_id),
+                        "host": material.server_name,
+                    },
+                    "tlsSettings": {
+                        "serverName": material.server_name,
+                        "fingerprint": "chrome",
+                        "alpn": ["http/1.1"],
+                        "pinnedPeerCertSha256": material.certificate_sha256,
+                    },
+                },
+            },
+            {"tag": "block", "protocol": "blackhole"},
+        ],
+    }
+
+
+def render_xray_case_server(
+    case_id: str,
+    material: VlessTlsMaterial,
+    *,
+    port: int,
+) -> dict[str, Any]:
+    if case_id == "vless-tcp-tls":
+        return render_vless_tls_server(material, port=port)
+    if case_id == "class-05-vmess-websocket-tls":
+        return render_vmess_websocket_tls_server(material, port=port)
+    raise ConfigurationError(f"Xray case is not implemented yet: {case_id}")
+
+
+def render_xray_case_client(
+    case_id: str,
+    material: VlessTlsMaterial,
+    *,
+    server_address: str,
+    server_port: int,
+    socks_port: int = 10808,
+) -> dict[str, Any]:
+    if case_id == "vless-tcp-tls":
+        return render_vless_tls_client(
+            material,
+            server_address=server_address,
+            server_port=server_port,
+            socks_port=socks_port,
+        )
+    if case_id == "class-05-vmess-websocket-tls":
+        return render_vmess_websocket_tls_client(
+            material,
+            server_address=server_address,
+            server_port=server_port,
+            socks_port=socks_port,
+        )
+    raise ConfigurationError(f"Xray case is not implemented yet: {case_id}")
+
+
 def write_private_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
@@ -407,9 +557,21 @@ def start_server_container(project_root: Path) -> str:
     """Start the constrained Xray server container, or return its running ID."""
     image = load_image_lock(project_root / "configs" / "locks" / "xray.json")
     validate_server_config_with_container(project_root)
+    config_path = project_root / "secrets" / "generated" / "server.json"
+    config_sha256 = _file_sha256(config_path)
     existing = _container_state()
-    if existing == "running":
+    if existing == "running" and _container_label(
+        XRAY_SERVER_CONTAINER, "proxy-traffic-lab.config-sha256"
+    ) == config_sha256:
         return _container_id()
+    if existing == "running":
+        stop = run_command(
+            ["docker", "stop", "--time", "10", XRAY_SERVER_CONTAINER],
+            timeout_seconds=20,
+        )
+        if stop.returncode != 0:
+            raise ConfigurationError(f"cannot stop stale Xray container: {stop.stderr}")
+        existing = "stopped"
     if existing == "stopped":
         remove = run_command(
             ["docker", "rm", XRAY_SERVER_CONTAINER], timeout_seconds=15
@@ -417,7 +579,6 @@ def start_server_container(project_root: Path) -> str:
         if remove.returncode != 0:
             raise ConfigurationError(f"cannot remove stopped Xray container: {remove.stderr}")
 
-    config_path = project_root / "secrets" / "generated" / "server.json"
     certificate_path = project_root / "secrets" / "xray" / "server.crt"
     private_key_path = project_root / "secrets" / "xray" / "server.key"
     _prepare_container_read_permissions(config_path, certificate_path, private_key_path)
@@ -428,6 +589,8 @@ def start_server_container(project_root: Path) -> str:
             "--detach",
             "--name",
             XRAY_SERVER_CONTAINER,
+            "--label",
+            f"proxy-traffic-lab.config-sha256={config_sha256}",
             "--restart",
             "no",
             "--read-only",
@@ -461,6 +624,103 @@ def start_server_container(project_root: Path) -> str:
     if result.returncode != 0:
         raise ConfigurationError(f"cannot start Xray server: {result.stderr}")
     return result.stdout.strip()
+
+
+def start_client_container(config_path: Path) -> str:
+    """Start the local Xray client from an explicitly supplied generated config."""
+    resolved = config_path.expanduser().resolve()
+    if not resolved.is_file():
+        raise ConfigurationError(f"Xray client config is missing: {resolved}")
+    validate_generated_client_address(resolved)
+    image = _local_official_image_id()
+    config_sha256 = _file_sha256(resolved)
+    state = _named_container_state(XRAY_CLIENT_CONTAINER)
+    if state == "running" and _container_label(
+        XRAY_CLIENT_CONTAINER, "proxy-traffic-lab.config-sha256"
+    ) == config_sha256:
+        return _named_container_id(XRAY_CLIENT_CONTAINER)
+    if state == "running":
+        stopped = run_command(
+            ["docker", "stop", "--time", "10", XRAY_CLIENT_CONTAINER],
+            timeout_seconds=20,
+        )
+        if stopped.returncode != 0:
+            raise ConfigurationError(f"cannot stop stale Xray client: {stopped.stderr}")
+        state = "stopped"
+    if state == "stopped":
+        removed = run_command(
+            ["docker", "rm", XRAY_CLIENT_CONTAINER], timeout_seconds=15
+        )
+        if removed.returncode != 0:
+            raise ConfigurationError(f"cannot remove stale Xray client: {removed.stderr}")
+
+    result = run_command(
+        [
+            "docker",
+            "run",
+            "--detach",
+            "--name",
+            XRAY_CLIENT_CONTAINER,
+            "--label",
+            f"proxy-traffic-lab.config-sha256={config_sha256}",
+            "--restart",
+            "unless-stopped",
+            "--network",
+            "host",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--pids-limit",
+            "128",
+            "--memory",
+            "512m",
+            "--cpus",
+            "1.0",
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+            "--mount",
+            f"type=bind,src={resolved},dst=/run/lab/client.json,readonly",
+            image,
+            "run",
+            "-config",
+            "/run/lab/client.json",
+        ],
+        timeout_seconds=30,
+    )
+    if result.returncode != 0:
+        raise ConfigurationError(f"cannot start Xray client: {result.stderr}")
+    return result.stdout.strip()
+
+
+def client_status(*, socks_port: int = 10808) -> dict[str, Any]:
+    _validate_port(socks_port)
+    state = _named_container_state(XRAY_CLIENT_CONTAINER)
+    status: dict[str, Any] = {
+        "container": XRAY_CLIENT_CONTAINER,
+        "state": state,
+        "healthy": False,
+        "socks_port": socks_port,
+    }
+    if state != "running":
+        return status
+    try:
+        with socket.create_connection(("127.0.0.1", socks_port), timeout=2):
+            pass
+    except OSError as exc:
+        status["detail"] = f"SOCKS listener unavailable: {type(exc).__name__}"
+        return status
+    status.update({"healthy": True, "detail": "SOCKS listener reachable"})
+    return status
+
+
+def client_logs(*, tail: int = 100) -> str:
+    return _named_container_logs(XRAY_CLIENT_CONTAINER, tail=tail)
+
+
+def stop_client_container() -> str:
+    return _stop_named_container(XRAY_CLIENT_CONTAINER)
 
 
 def server_status(project_root: Path) -> dict[str, Any]:
@@ -524,13 +784,17 @@ def stop_server_container() -> str:
 
 
 def _container_state() -> str:
+    return _named_container_state(XRAY_SERVER_CONTAINER)
+
+
+def _named_container_state(name: str) -> str:
     result = run_command(
         [
             "docker",
             "inspect",
             "--format",
             "{{.State.Status}}",
-            XRAY_SERVER_CONTAINER,
+            name,
         ],
         timeout_seconds=10,
     )
@@ -540,13 +804,80 @@ def _container_state() -> str:
 
 
 def _container_id() -> str:
+    return _named_container_id(XRAY_SERVER_CONTAINER)
+
+
+def _named_container_id(name: str) -> str:
     result = run_command(
-        ["docker", "inspect", "--format", "{{.Id}}", XRAY_SERVER_CONTAINER],
+        ["docker", "inspect", "--format", "{{.Id}}", name],
         timeout_seconds=10,
     )
     if result.returncode != 0:
         raise ConfigurationError(f"cannot inspect Xray server: {result.stderr}")
     return result.stdout.strip()
+
+
+def _container_label(name: str, label: str) -> str:
+    result = run_command(
+        [
+            "docker",
+            "inspect",
+            "--format",
+            f"{{{{index .Config.Labels \"{label}\"}}}}",
+            name,
+        ],
+        timeout_seconds=10,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _named_container_logs(name: str, *, tail: int) -> str:
+    if not 1 <= tail <= 10_000:
+        raise ConfigurationError("tail must be between 1 and 10000")
+    if _named_container_state(name) == "absent":
+        return f"{name} is absent"
+    result = run_command(
+        ["docker", "logs", "--tail", str(tail), name], timeout_seconds=15
+    )
+    if result.returncode != 0:
+        raise ConfigurationError(f"cannot read {name} logs: {result.stderr}")
+    return "\n".join(part for part in (result.stdout, result.stderr) if part)
+
+
+def _stop_named_container(name: str) -> str:
+    state = _named_container_state(name)
+    if state == "absent":
+        return "already absent"
+    if state == "running":
+        stop = run_command(
+            ["docker", "stop", "--time", "10", name], timeout_seconds=20
+        )
+        if stop.returncode != 0:
+            raise ConfigurationError(f"cannot stop {name}: {stop.stderr}")
+    remove = run_command(["docker", "rm", name], timeout_seconds=15)
+    if remove.returncode != 0:
+        raise ConfigurationError(f"cannot remove {name}: {remove.stderr}")
+    return "stopped and removed"
+
+
+def _local_official_image_id() -> str:
+    result = run_command(
+        ["docker", "image", "inspect", XRAY_OFFICIAL_IMAGE_TAG, "--format", "{{.Id}}"],
+        timeout_seconds=15,
+    )
+    if result.returncode != 0 or not re.fullmatch(r"sha256:[0-9a-f]{64}", result.stdout):
+        raise ConfigurationError(
+            f"local official Xray image is missing: {XRAY_OFFICIAL_IMAGE_TAG}"
+        )
+    return result.stdout
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _prepare_container_read_permissions(*paths: Path) -> None:
@@ -576,6 +907,52 @@ def _looks_like_ip(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _normalize_server_address(value: str) -> str:
+    try:
+        return ipaddress.ip_address(value).compressed
+    except ValueError as exc:
+        raise ConfigurationError(
+            "server_address must be the VPS IPv4 or IPv6 address; "
+            "placeholders and hostnames are rejected"
+        ) from exc
+
+
+def _websocket_path(client_id: str) -> str:
+    try:
+        identifier = uuid.UUID(client_id)
+    except (ValueError, TypeError) as exc:
+        raise ConfigurationError("invalid VMess client UUID") from exc
+    return f"/assets/{identifier.hex[:16]}"
+
+
+def _server_routing() -> dict[str, Any]:
+    return {
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+            {
+                "type": "field",
+                "ip": [
+                    "geoip:private",
+                    "100.64.0.0/10",
+                    "100.100.100.200/32",
+                    "169.254.0.0/16",
+                    "224.0.0.0/4",
+                    "240.0.0.0/4",
+                    "::1/128",
+                    "fe80::/10",
+                    "fc00::/7",
+                ],
+                "outboundTag": "block",
+            },
+            {
+                "type": "field",
+                "protocol": ["bittorrent"],
+                "outboundTag": "block",
+            },
+        ],
+    }
 
 
 def _validate_port(port: int) -> None:

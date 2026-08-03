@@ -47,30 +47,60 @@ class LabConfig(StrictModel):
 
 class ProtocolCase(StrictModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
+    dataset_class: int = Field(ge=1, le=12)
     enabled: bool = True
-    protocol: Literal["vless", "vmess", "trojan", "shadowsocks", "hysteria2"]
-    client: Literal["xray", "sing-box", "shadowsocks-rust", "hysteria2"]
-    server: Literal["xray", "sing-box", "shadowsocks-rust", "hysteria2"]
+    protocol: Literal[
+        "vless", "vmess", "trojan", "shadowsocks", "shadowsocksr", "hysteria2"
+    ]
+    client: Literal[
+        "xray", "sing-box", "shadowsocks-rust", "shadowsocksr-libev", "hysteria2"
+    ]
+    server: Literal[
+        "xray", "sing-box", "shadowsocks-rust", "shadowsocksr-libev", "hysteria2"
+    ]
     outer_transport: Literal["tcp", "udp"]
-    wrapper: Literal["raw", "websocket", "grpc", "quic"]
+    wrapper: Literal["raw", "websocket", "xhttp", "grpc", "quic"]
     security: Literal["none", "tls", "reality", "shadowsocks-2022"]
     flow: str | None = None
+    cipher: str | None = None
+    protocol_plugin: str | None = None
+    obfs: str | None = None
+    obfs_mode: str | None = None
     inner_networks: list[Literal["tcp", "udp"]] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def supported_combination(self) -> "ProtocolCase":
-        if self.id == "vless-tcp-tls":
+    def supported_combination(self) -> ProtocolCase:
+        expected_ids = {
+            1: "class-01-shadowsocks-2022-tcp",
+            2: "class-02-shadowsocks-2022-udp",
+            3: "class-03-ssr-auth-aes128-md5",
+            4: "class-04-ssr-auth-aes128-sha1",
+            5: "class-05-vmess-websocket-tls",
+            6: "class-06-vmess-xhttp-h2-tls",
+            7: "class-07-vless-raw-reality-vision",
+            8: "class-08-vless-grpc-tls",
+            9: "class-09-trojan-raw-tls",
+            10: "class-10-trojan-websocket-tls",
+            11: "class-11-hysteria2-quic-tls",
+            12: "class-12-hysteria2-quic-salamander-tls",
+        }
+        if self.id != expected_ids[self.dataset_class]:
+            raise ValueError(
+                f"dataset class {self.dataset_class} must use id "
+                f"{expected_ids[self.dataset_class]}"
+            )
+
+        if self.dataset_class == 5:
             expected = (
-                self.protocol == "vless"
+                self.protocol == "vmess"
                 and self.client == "xray"
                 and self.server == "xray"
                 and self.outer_transport == "tcp"
-                and self.wrapper == "raw"
+                and self.wrapper == "websocket"
                 and self.security == "tls"
-                and self.flow is None
             )
             if not expected:
-                raise ValueError("vless-tcp-tls does not match the supported MVP stack")
+                raise ValueError("class 5 must be VMess + WebSocket + TLS on Xray")
         return self
 
 
@@ -79,9 +109,13 @@ class ProtocolMatrix(StrictModel):
     cases: list[ProtocolCase] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def unique_case_ids(self) -> "ProtocolMatrix":
+    def unique_case_ids(self) -> ProtocolMatrix:
         ids = [case.id for case in self.cases]
         if len(ids) != len(set(ids)):
             raise ValueError("protocol case ids must be unique")
+        classes = [case.dataset_class for case in self.cases]
+        if len(classes) != len(set(classes)):
+            raise ValueError("dataset class numbers must be unique")
+        if set(classes) != set(range(1, 13)):
+            raise ValueError("protocol matrix must define dataset classes 1 through 12")
         return self
-

@@ -1,41 +1,31 @@
 import pytest
 from pydantic import ValidationError
 
+from proxy_traffic_lab.controller.config import load_protocol_matrix
 from proxy_traffic_lab.controller.models import ProtocolMatrix
 
 
-def _case() -> dict[str, object]:
-    return {
-        "id": "vless-tcp-tls",
-        "enabled": True,
-        "protocol": "vless",
-        "client": "xray",
-        "server": "xray",
-        "outer_transport": "tcp",
-        "wrapper": "raw",
-        "security": "tls",
-        "flow": None,
-        "inner_networks": ["tcp"],
-    }
+def _matrix_document() -> dict[str, object]:
+    return load_protocol_matrix().model_dump(mode="json")
 
 
-def test_accepts_mvp_case() -> None:
-    matrix = ProtocolMatrix.model_validate(
-        {"schema_version": 1, "cases": [_case()]}
-    )
-    assert matrix.cases[0].id == "vless-tcp-tls"
+def test_accepts_complete_target_matrix() -> None:
+    matrix = ProtocolMatrix.model_validate(_matrix_document())
+    assert [case.dataset_class for case in matrix.cases] == list(range(1, 13))
+    assert [case.id for case in matrix.cases if case.enabled] == [
+        "class-05-vmess-websocket-tls"
+    ]
 
 
-def test_rejects_mislabeled_mvp_case() -> None:
-    case = _case()
-    case["security"] = "none"
-    with pytest.raises(ValidationError, match="supported MVP stack"):
-        ProtocolMatrix.model_validate({"schema_version": 1, "cases": [case]})
+def test_rejects_mislabeled_class_05() -> None:
+    document = _matrix_document()
+    document["cases"][4]["security"] = "none"  # type: ignore[index]
+    with pytest.raises(ValidationError, match="class 5 must be"):
+        ProtocolMatrix.model_validate(document)
 
 
-def test_rejects_duplicate_ids() -> None:
-    with pytest.raises(ValidationError, match="must be unique"):
-        ProtocolMatrix.model_validate(
-            {"schema_version": 1, "cases": [_case(), _case()]}
-        )
-
+def test_rejects_duplicate_dataset_class() -> None:
+    document = _matrix_document()
+    document["cases"][1]["dataset_class"] = 1  # type: ignore[index]
+    with pytest.raises(ValidationError):
+        ProtocolMatrix.model_validate(document)

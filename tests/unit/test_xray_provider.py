@@ -1,18 +1,21 @@
-from pathlib import Path
 import json
+from pathlib import Path
+from typing import Self
 
 import pytest
 
 from proxy_traffic_lab.controller.errors import ConfigurationError
 from proxy_traffic_lab.providers.xray import (
-    VlessTlsMaterial,
     XRAY_OFFICIAL_IMAGE_TAG,
+    VlessTlsMaterial,
     render_vless_tls_client,
     render_vless_tls_server,
-    validate_official_image_digest,
+    render_vmess_websocket_tls_client,
+    render_vmess_websocket_tls_server,
     validate_generated_client_address,
+    validate_official_image_digest,
 )
-from proxy_traffic_lab.providers import xray
+from proxy_traffic_lab.providers.xray import runtime as xray
 
 
 def _material() -> VlessTlsMaterial:
@@ -37,6 +40,33 @@ def test_server_config_keeps_layers_explicit() -> None:
 def test_server_blocks_cloud_metadata() -> None:
     config = render_vless_tls_server(_material(), port=24443)
     assert "100.100.100.200/32" in config["routing"]["rules"][0]["ip"]
+
+
+def test_class_05_server_uses_vmess_websocket_tls() -> None:
+    config = render_vmess_websocket_tls_server(_material(), port=24443)
+    inbound = config["inbounds"][0]
+    stream = inbound["streamSettings"]
+    assert inbound["protocol"] == "vmess"
+    assert inbound["settings"]["users"][0]["id"] == _material().client_id
+    assert stream["method"] == "websocket"
+    assert stream["security"] == "tls"
+    assert stream["wsSettings"]["path"].startswith("/assets/")
+    assert stream["tlsSettings"]["alpn"] == ["http/1.1"]
+
+
+def test_class_05_client_matches_server_and_pins_certificate() -> None:
+    server = render_vmess_websocket_tls_server(_material(), port=24443)
+    client = render_vmess_websocket_tls_client(
+        _material(), server_address="203.0.113.10", server_port=24443
+    )
+    inbound_stream = server["inbounds"][0]["streamSettings"]
+    outbound = client["outbounds"][0]
+    outbound_stream = outbound["streamSettings"]
+    assert outbound["protocol"] == "vmess"
+    assert outbound_stream["wsSettings"]["path"] == inbound_stream["wsSettings"]["path"]
+    assert outbound_stream["wsSettings"]["host"] == inbound_stream["wsSettings"]["host"]
+    assert outbound_stream["tlsSettings"]["pinnedPeerCertSha256"] == "a" * 64
+    assert "allowInsecure" not in outbound_stream["tlsSettings"]
 
 
 def test_client_pins_certificate_without_allow_insecure() -> None:
@@ -83,7 +113,7 @@ def test_server_status_reports_listener_health(tmp_path: Path, monkeypatch: pyte
     monkeypatch.setattr(xray, "_container_state", lambda: "running")
 
     class Connection:
-        def __enter__(self) -> "Connection":
+        def __enter__(self) -> Self:
             return self
 
         def __exit__(self, *args: object) -> None:

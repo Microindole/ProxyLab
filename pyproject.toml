@@ -18,6 +18,9 @@ dependencies = [
 dev = [
   "pytest>=8.3,<9",
 ]
+traffic = [
+  "playwright>=1.62,<1.63",
+]
 
 [project.scripts]
 lab = "proxy_traffic_lab.controller.cli:main"
@@ -28,4 +31,3 @@ packages = ["src/proxy_traffic_lab"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
+from proxy_traffic_lab.capture.experiment import run_web_capture
 from proxy_traffic_lab.controller.config import (
     load_dotenv,
     load_lab_config,
@@ -14,14 +16,18 @@ from proxy_traffic_lab.controller.config import (
 from proxy_traffic_lab.controller.doctor import render_report, run_doctor
 from proxy_traffic_lab.controller.errors import LabError
 from proxy_traffic_lab.providers.xray import (
+    client_logs,
+    client_status,
     create_vless_tls_material,
     load_vless_tls_material,
     lock_official_image,
-    render_vless_tls_client,
-    render_vless_tls_server,
+    render_xray_case_client,
+    render_xray_case_server,
     server_logs,
     server_status,
+    start_client_container,
     start_server_container,
+    stop_client_container,
     stop_server_container,
     validate_server_config_with_container,
     write_private_json,
@@ -66,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
     render = xray_subcommands.add_parser(
         "render", help="render secret server/client configurations"
     )
+    render.add_argument(
+        "--case",
+        default="vless-tcp-tls",
+        choices=["vless-tcp-tls", "class-05-vmess-websocket-tls"],
+        help="protocol case to render (default keeps the original smoke case)",
+    )
     render.add_argument("--server-address", required=True)
     render.add_argument("--server-port", type=int, required=True)
     render.add_argument("--socks-port", type=int, default=10808)
@@ -80,6 +92,55 @@ def build_parser() -> argparse.ArgumentParser:
     logs = server_subcommands.add_parser("logs", help="show Xray container logs")
     logs.add_argument("--tail", type=int, default=100)
     server_subcommands.add_parser("stop", help="stop and remove the Xray server")
+
+    client = subcommands.add_parser("client", help="local Xray client lifecycle")
+    client_subcommands = client.add_subparsers(dest="client_command", required=True)
+    client_start = client_subcommands.add_parser(
+        "start", help="start the constrained local Xray client"
+    )
+    client_start.add_argument(
+        "--config",
+        type=Path,
+        default=Path("~/proxy-lab-client/client.json"),
+    )
+    client_status_parser = client_subcommands.add_parser(
+        "status", help="show local Xray client and SOCKS listener status"
+    )
+    client_status_parser.add_argument("--socks-port", type=int, default=10808)
+    client_logs_parser = client_subcommands.add_parser(
+        "logs", help="show local Xray client logs"
+    )
+    client_logs_parser.add_argument("--tail", type=int, default=100)
+    client_subcommands.add_parser("stop", help="stop and remove the local Xray client")
+
+    experiment = subcommands.add_parser(
+        "experiment", help="run a client-side capture experiment"
+    )
+    experiment_subcommands = experiment.add_subparsers(
+        dest="experiment_command", required=True
+    )
+    web = experiment_subcommands.add_parser(
+        "web", help="capture a Playwright web-browsing pilot"
+    )
+    web.add_argument("--case", required=True, help="enabled protocol case id")
+    web.add_argument("--server-ip", required=True)
+    web.add_argument("--server-port", required=True, type=int)
+    web.add_argument("--proxy", default="socks5://127.0.0.1:10808")
+    web.add_argument(
+        "--url",
+        action="append",
+        dest="urls",
+        help="authorized URL to visit; repeat for multiple sites",
+    )
+    web.add_argument("--duration", type=int, default=120)
+    web.add_argument("--max-pages", type=int, default=12)
+    web.add_argument("--seed", type=int)
+    web.add_argument("--interface")
+    web.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("~/proxy-lab-data"),
+    )
     return parser
 
 
@@ -140,18 +201,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             generated = root / "secrets" / "generated"
             write_private_json(
                 generated / "server.json",
-                render_vless_tls_server(material, port=args.server_port),
+                render_xray_case_server(
+                    args.case,
+                    material,
+                    port=args.server_port,
+                ),
             )
             write_private_json(
                 generated / "client.json",
-                render_vless_tls_client(
+                render_xray_case_client(
+                    args.case,
                     material,
                     server_address=args.server_address,
                     server_port=args.server_port,
                     socks_port=args.socks_port,
                 ),
             )
-            print("Rendered ignored configs under secrets/generated")
+            print(
+                "Rendered ignored configs under secrets/generated; "
+                f"case={args.case}"
+            )
             return 0
 
         if args.command == "xray" and args.xray_command == "validate":
@@ -178,6 +247,45 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "server" and args.server_command == "stop":
             print(stop_server_container())
+            return 0
+
+        if args.command == "client" and args.client_command == "start":
+            container_id = start_client_container(args.config)
+            print(f"Xray client running: {container_id[:12]}")
+            return 0
+
+        if args.command == "client" and args.client_command == "status":
+            status = client_status(socks_port=args.socks_port)
+            print(json.dumps(status, ensure_ascii=False, indent=2))
+            return 0 if status["healthy"] else 2
+
+        if args.command == "client" and args.client_command == "logs":
+            print(client_logs(tail=args.tail))
+            return 0
+
+        if args.command == "client" and args.client_command == "stop":
+            print(stop_client_container())
+            return 0
+
+        if args.command == "experiment" and args.experiment_command == "web":
+            matrix = load_protocol_matrix()
+            case = next((item for item in matrix.cases if item.id == args.case), None)
+            if case is None:
+                raise LabError(f"unknown protocol case: {args.case}")
+            seed = args.seed if args.seed is not None else random.SystemRandom().randrange(2**31)
+            session_dir = run_web_capture(
+                case=case,
+                server_ip=args.server_ip,
+                server_port=args.server_port,
+                proxy_server=args.proxy,
+                urls=args.urls or ["https://example.com/"],
+                seed=seed,
+                max_duration_seconds=args.duration,
+                max_pages=args.max_pages,
+                output_root=args.output_root,
+                interface=args.interface,
+            )
+            print(f"Pilot session written: {session_dir}")
             return 0
     except LabError as exc:
         print(f"error: {exc}", file=sys.stderr)
