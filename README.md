@@ -82,6 +82,11 @@ no privilege escalation, one CPU, 512 MiB memory, and a 128-process limit.
 
 ## Formal class 5 pilot
 
+For the complete Chinese production workflow—including server/client terminal
+separation, WSLg Chromium startup, programs that must be disabled, automatic
+size/idle stopping, and the five-PCAP acceptance checks—follow
+[`docs/formal-capture-runbook-zh.md`](docs/formal-capture-runbook-zh.md).
+
 Render class 5 on the server. This replaces only the ignored generated
 configuration; it does not replace certificates or credentials.
 
