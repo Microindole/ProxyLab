@@ -7,7 +7,10 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from proxy_traffic_lab.capture.experiment import run_web_capture
+from proxy_traffic_lab.capture.experiment import (
+    run_size_limited_capture,
+    run_web_capture,
+)
 from proxy_traffic_lab.controller.config import (
     load_dotenv,
     load_lab_config,
@@ -112,6 +115,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     client_logs_parser.add_argument("--tail", type=int, default=100)
     client_subcommands.add_parser("stop", help="stop and remove the local Xray client")
+
+    capture = subcommands.add_parser(
+        "capture", help="capture existing real traffic to a size-limited PCAP"
+    )
+    capture_subcommands = capture.add_subparsers(
+        dest="capture_command", required=True
+    )
+    capture_run = capture_subcommands.add_parser(
+        "run", help="monitor PCAP size and stop after post-target traffic becomes idle"
+    )
+    capture_run.add_argument("--case", required=True, help="enabled protocol case id")
+    capture_run.add_argument("--server-ip", required=True)
+    capture_run.add_argument("--server-port", required=True, type=int)
+    capture_run.add_argument("--target-gib", type=float, default=1.0)
+    capture_run.add_argument("--profile", default="mixed")
+    capture_run.add_argument("--interface")
+    capture_run.add_argument("--progress-interval", type=float, default=5.0)
+    capture_run.add_argument("--idle-seconds", type=float, default=15.0)
+    capture_run.add_argument("--idle-kib-per-second", type=float, default=32.0)
+    capture_run.add_argument("--finish-timeout", type=float, default=300.0)
+    capture_run.add_argument(
+        "--output-root", type=Path, default=Path("~/proxy-lab-data")
+    )
 
     experiment = subcommands.add_parser(
         "experiment", help="run a client-side capture experiment"
@@ -265,6 +291,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "client" and args.client_command == "stop":
             print(stop_client_container())
+            return 0
+
+        if args.command == "capture" and args.capture_command == "run":
+            matrix = load_protocol_matrix()
+            case = next((item for item in matrix.cases if item.id == args.case), None)
+            if case is None:
+                raise LabError(f"unknown protocol case: {args.case}")
+            if args.target_gib <= 0:
+                raise LabError("--target-gib must be positive")
+            session_dir = run_size_limited_capture(
+                case=case,
+                server_ip=args.server_ip,
+                server_port=args.server_port,
+                target_bytes=round(args.target_gib * 1024**3),
+                output_root=args.output_root,
+                profile=args.profile,
+                interface=args.interface,
+                progress_interval_seconds=args.progress_interval,
+                idle_seconds=args.idle_seconds,
+                idle_bytes_per_second=args.idle_kib_per_second * 1024,
+                finish_timeout_seconds=args.finish_timeout,
+            )
+            print(f"Capture session written: {session_dir}")
             return 0
 
         if args.command == "experiment" and args.experiment_command == "web":
