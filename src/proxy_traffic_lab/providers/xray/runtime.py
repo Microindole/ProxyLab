@@ -275,7 +275,7 @@ def render_vmess_websocket_tls_server(
                 "port": port,
                 "protocol": "vmess",
                 "settings": {
-                    "users": [
+                    "clients": [
                         {
                             "id": material.client_id,
                             "level": 0,

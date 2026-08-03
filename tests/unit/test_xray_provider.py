@@ -47,7 +47,7 @@ def test_class_05_server_uses_vmess_websocket_tls() -> None:
     inbound = config["inbounds"][0]
     stream = inbound["streamSettings"]
     assert inbound["protocol"] == "vmess"
-    assert inbound["settings"]["users"][0]["id"] == _material().client_id
+    assert inbound["settings"]["clients"][0]["id"] == _material().client_id
     assert stream["method"] == "websocket"
     assert stream["security"] == "tls"
     assert stream["wsSettings"]["path"].startswith("/assets/")
