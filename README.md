@@ -82,9 +82,14 @@ lab server stop
 
 ## 试验
 
-完整的中文生产流程（包括服务器/客户端终端分离、WSLg Chromium 启动、
-必须禁用的程序、自动大小/空闲停止机制，以及五个 PCAP
-验收检查），请参考：
+当前有两套采集流程，按目标选择，不要混用：
+
+- 普通网页/视频直连流量（Win11 + Wireshark/Npcap + mixed IPv4/IPv6）：
+  [`docs/plain-windows-capture-runbook-zh.md`](docs/plain-windows-capture-runbook-zh.md)
+- 代理隧道类别 5/6（WSL 客户端 + VPS 服务端 + 外层 TCP 流分段）：
+  [`docs/flow-limited-capture-runbook-zh.md`](docs/flow-limited-capture-runbook-zh.md)
+
+旧的按 1 GiB 分段流程只作为历史参考保留：
 [`docs/formal-capture-runbook-zh.md`](docs/formal-capture-runbook-zh.md)。
 
 在服务器端渲染类别 5。此操作只替换被忽略的生成配置，不会替换证书或凭据。

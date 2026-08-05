@@ -18,6 +18,18 @@ private keys, UUIDs, tokens, public IP addresses, or packet captures.
 - Protocol-matrix validation for the MVP case
 - Extension points for providers, isolation, capture, traffic, and datasets
 
+## Capture runbooks
+
+Use the Chinese runbooks for the currently maintained operating procedures:
+
+- Plain Win11 website/video capture with Windows dumpcap and mixed IPv4/IPv6:
+  `docs/plain-windows-capture-runbook-zh.md`
+- Proxy-tunnel class 5/6 capture with WSL client and VPS server:
+  `docs/flow-limited-capture-runbook-zh.md`
+
+The older 1-GiB segmented proxy capture document,
+`docs/formal-capture-runbook-zh.md`, is retained only as historical reference.
+
 ## Ubuntu bootstrap
 
 ```bash

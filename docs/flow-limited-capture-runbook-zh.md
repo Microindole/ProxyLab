@@ -1,5 +1,11 @@
 # 按外层流数量分段的手动 PCAP 采集手册
 
+> 本手册只适用于代理隧道类别 5/6：Windows 浏览器进入 WSL Xray 客户端，
+> WSL 抓取到 VPS 的固定外层隧道流量。
+>
+> 普通网页/新闻/视频直连流量的当前流程已经迁移到 Windows 原生环境，
+> 见 `docs/plain-windows-capture-runbook-zh.md`。两套流程不要混用。
+
 ## 1. 当前范围
 
 当前已实现 `class-05-vmess-websocket-tls` 和 `class-06-vmess-xhttp-h2-tls`。其余10类在协议矩阵中仍是 `disabled`，不能仅修改标签后采集。

@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
+import subprocess
 import sys
+import time
+import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
+from proxy_traffic_lab.capture.experiment import _format_bytes
+from proxy_traffic_lab.capture.flow_tracker import PcapIpPacketTracker, PcapTcpFlowTracker
 from proxy_traffic_lab.capture.experiment import (
     run_segmented_capture,
     run_web_capture,
@@ -162,6 +169,63 @@ def build_parser() -> argparse.ArgumentParser:
     capture_run.add_argument("--finish-timeout", type=float, default=300.0)
     capture_run.add_argument(
         "--output-root", type=Path, default=Path("~/proxy-lab-data")
+    )
+    capture_win_ipv6 = capture_subcommands.add_parser(
+        "windows-ipv6",
+        help="capture plain Win11 IPv6 browser traffic with Windows dumpcap",
+    )
+    capture_win_ipv6.add_argument(
+        "--list-interfaces",
+        action="store_true",
+        help="list Windows dumpcap interfaces and exit",
+    )
+    capture_win_ipv6.add_argument(
+        "--interface",
+        help="Windows dumpcap interface number or name, from --list-interfaces",
+    )
+    capture_win_ipv6.add_argument(
+        "--output",
+        type=Path,
+        help="single output PCAP path; omit when using repeated --profile",
+    )
+    capture_win_ipv6.add_argument(
+        "--profile",
+        action="append",
+        dest="profiles",
+        help="profile for one PCAP; repeat to capture multiple PCAPs in sequence",
+    )
+    capture_win_ipv6.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("~/proxy-lab-data/plain"),
+        help="root used with --profile; default: ~/proxy-lab-data/plain",
+    )
+    capture_win_ipv6.add_argument(
+        "--ip-version",
+        choices=("ipv6", "mixed"),
+        default="mixed",
+        help="capture only IPv6, or mixed IPv4+IPv6; default: mixed",
+    )
+    capture_win_ipv6.add_argument("--target-flows", type=int)
+    capture_win_ipv6.add_argument("--progress-interval", type=float, default=5.0)
+    capture_win_ipv6.add_argument("--idle-seconds", type=float, default=15.0)
+    capture_win_ipv6.add_argument("--idle-kib-per-second", type=float, default=32.0)
+    capture_win_ipv6.add_argument("--finish-timeout", type=float, default=300.0)
+    capture_win_ipv6.add_argument("--duration-seconds", type=int, default=0)
+    capture_win_ipv6.add_argument(
+        "--start-url",
+        default="https://test-ipv6.com/",
+        help="initial URL for the no-proxy capture browser",
+    )
+    capture_win_ipv6.add_argument(
+        "--start-chrome",
+        action="store_true",
+        help="start a dedicated no-proxy Chrome/Edge profile",
+    )
+    capture_win_ipv6.add_argument(
+        "--disable-quic",
+        action="store_true",
+        help="disable QUIC in the launched browser; leave off for realistic video",
     )
 
     experiment = subcommands.add_parser(
@@ -350,6 +414,84 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"  {session_dir}")
             return 0
 
+        if args.command == "capture" and args.capture_command == "windows-ipv6":
+            root = Path(__file__).resolve().parents[3]
+            script = root / "scripts" / "capture_win_ipv6.ps1"
+            if not script.is_file():
+                raise LabError(f"missing helper script: {script}")
+            if not args.list_interfaces and not args.interface:
+                raise LabError(
+                    "missing --interface; first run: lab capture windows-ipv6 --list-interfaces"
+                )
+            if args.target_flows is not None and args.target_flows <= 0:
+                raise LabError("--target-flows must be positive")
+            if args.progress_interval <= 0:
+                raise LabError("--progress-interval must be positive")
+            if args.idle_seconds < 0 or args.idle_kib_per_second < 0:
+                raise LabError("idle thresholds cannot be negative")
+            command = [
+                "powershell.exe",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                _wslpath_to_windows(script),
+            ]
+            if args.list_interfaces:
+                if os.name == "nt":
+                    completed = subprocess.run(
+                        [str(_find_windows_dumpcap_for_wsl()), "-D"],
+                        check=False,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    stdout_text = completed.stdout.decode("mbcs", errors="replace")
+                    stderr_text = completed.stderr.decode("mbcs", errors="replace")
+                    sys.stdout.write(
+                        stdout_text.encode(
+                            sys.stdout.encoding or "utf-8", errors="replace"
+                        ).decode(sys.stdout.encoding or "utf-8")
+                    )
+                    sys.stderr.write(
+                        stderr_text.encode(
+                            sys.stderr.encoding or "utf-8", errors="replace"
+                        ).decode(sys.stderr.encoding or "utf-8")
+                    )
+                    return completed.returncode
+                command.append("-ListInterfaces")
+            elif args.target_flows is not None:
+                session_dirs = _run_windows_ipv6_flow_capture(
+                    interface=args.interface,
+                    ip_version=args.ip_version,
+                    target_flows=args.target_flows,
+                    output_root=args.output_root,
+                    profiles=args.profiles or ["mixed"],
+                    start_chrome=args.start_chrome,
+                    start_url=args.start_url,
+                    disable_quic=args.disable_quic,
+                    progress_interval_seconds=args.progress_interval,
+                    idle_seconds=args.idle_seconds,
+                    idle_bytes_per_second=args.idle_kib_per_second * 1024,
+                    finish_timeout_seconds=args.finish_timeout,
+                )
+                print("Capture sessions written:")
+                for session_dir in session_dirs:
+                    print(f"  {session_dir}")
+                return 0
+            else:
+                command.extend(["-Interface", args.interface])
+                command.extend(["-IpVersion", args.ip_version])
+                if args.output is not None:
+                    command.extend(["-Output", _wslpath_to_windows(args.output)])
+                if args.duration_seconds:
+                    command.extend(["-DurationSeconds", str(args.duration_seconds)])
+                command.extend(["-StartUrl", args.start_url])
+                if args.start_chrome:
+                    command.append("-StartChrome")
+                if args.disable_quic:
+                    command.append("-DisableQuic")
+            completed = subprocess.run(command, check=False)
+            return completed.returncode
+
         if args.command == "experiment" and args.experiment_command == "web":
             matrix = load_protocol_matrix()
             case = next((item for item in matrix.cases if item.id == args.case), None)
@@ -376,3 +518,365 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.error("unsupported command")
     return 2
+
+
+def _wslpath_to_windows(path: Path) -> str:
+    expanded = path.expanduser()
+    if os.name == "nt":
+        return str(expanded.resolve())
+    result = subprocess.run(
+        ["wslpath", "-w", str(expanded)],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise LabError(f"cannot convert path for PowerShell: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _run_windows_ipv6_flow_capture(
+    *,
+    interface: str,
+    ip_version: str,
+    target_flows: int,
+    output_root: Path,
+    profiles: Sequence[str],
+    start_chrome: bool,
+    start_url: str,
+    disable_quic: bool,
+    progress_interval_seconds: float,
+    idle_seconds: float,
+    idle_bytes_per_second: float,
+    finish_timeout_seconds: float,
+) -> tuple[Path, ...]:
+    dumpcap = _find_windows_dumpcap_for_wsl()
+    series_started_at = datetime.now(UTC)
+    series_id = (
+        f"{series_started_at.strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid.uuid4().hex[:10]}"
+    )
+    sessions: list[Path] = []
+    segment_count = len(profiles)
+    if start_chrome:
+        _start_windows_no_proxy_browser(start_url=start_url, disable_quic=disable_quic)
+
+    for segment_index, profile in enumerate(profiles, start=1):
+        if segment_index > 1:
+            print(
+                f"Starting segment {segment_index}/{segment_count}: {profile}. "
+                "Wait for READY before beginning the next workload.",
+                flush=True,
+            )
+        session_dir, stop_reason = _capture_windows_ipv6_flow_segment(
+            dumpcap=dumpcap,
+            interface=interface,
+            ip_version=ip_version,
+            target_flows=target_flows,
+            output_root=output_root,
+            profile=profile,
+            series_id=series_id,
+            segment_index=segment_index,
+            segment_count=segment_count,
+            progress_interval_seconds=progress_interval_seconds,
+            idle_seconds=idle_seconds,
+            idle_bytes_per_second=idle_bytes_per_second,
+            finish_timeout_seconds=finish_timeout_seconds,
+        )
+        sessions.append(session_dir)
+        if segment_index == segment_count:
+            break
+        if stop_reason != "target_flows_reached_and_all_flows_closed":
+            print(
+                f"Series stopped after segment {segment_index}: {stop_reason}.",
+                flush=True,
+            )
+            break
+    return tuple(sessions)
+
+
+def _capture_windows_ipv6_flow_segment(
+    *,
+    dumpcap: Path,
+    interface: str,
+    ip_version: str,
+    target_flows: int,
+    output_root: Path,
+    profile: str,
+    series_id: str,
+    segment_index: int,
+    segment_count: int,
+    progress_interval_seconds: float,
+    idle_seconds: float,
+    idle_bytes_per_second: float,
+    finish_timeout_seconds: float,
+) -> tuple[Path, str]:
+    started_at = datetime.now(UTC)
+    sample_id = f"{started_at.strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:10]}"
+    case_id = (
+        "class-00-plain-ipv6"
+        if ip_version == "ipv6"
+        else "class-00-plain-ipv4-ipv6"
+    )
+    session_dir = (
+        output_root.expanduser().resolve()
+        / "formal"
+        / case_id
+        / profile
+        / sample_id
+    )
+    session_dir.mkdir(parents=True, exist_ok=False)
+    pcap_path = session_dir / "capture.pcap"
+    dumpcap_log_path = session_dir / "dumpcap.log"
+    capture_filter = (
+        "ip6 and (tcp port 80 or tcp port 443 or udp port 443)"
+        if ip_version == "ipv6"
+        else "(ip or ip6) and (tcp port 80 or tcp port 443 or udp port 443)"
+    )
+    windows_output = _wslpath_to_windows(pcap_path)
+    dumpcap_log = dumpcap_log_path.open("wb")
+    process = subprocess.Popen(
+        [
+            str(dumpcap),
+            "-q",
+            "-F",
+            "pcap",
+            "-i",
+            interface,
+            "-f",
+            capture_filter,
+            "-s",
+            "0",
+            "-w",
+            windows_output,
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=dumpcap_log,
+        stderr=subprocess.STDOUT,
+    )
+    tracker = PcapTcpFlowTracker(pcap_path)
+    ip_tracker = PcapIpPacketTracker(pcap_path)
+    stop_reason = "interrupted"
+    target_reached_at: float | None = None
+    quiet_started_at: float | None = None
+    flow_timeout_warning_at: float | None = None
+    previous_time = time.monotonic()
+    previous_size = 0
+    print(
+        f"READY segment {segment_index}/{segment_count}: {profile}\n"
+        f"Capturing plain {ip_version} on Windows interface {interface} to {pcap_path}\n"
+        f"Filter: {capture_filter}\n"
+        f"Target: {target_flows} TCP flows; after target, stop opening new pages "
+        "and let active flows close. Press Ctrl+C to stop early.",
+        flush=True,
+    )
+    try:
+        time.sleep(1)
+        if process.poll() is not None:
+            dumpcap_log.close()
+            stderr = dumpcap_log_path.read_text(errors="replace")
+            raise LabError(f"dumpcap exited before traffic started: {stderr.strip()}")
+        while True:
+            time.sleep(progress_interval_seconds)
+            now = time.monotonic()
+            size = pcap_path.stat().st_size if pcap_path.is_file() else 0
+            interval = max(now - previous_time, 0.001)
+            rate = max(size - previous_size, 0) / interval
+            stats = tracker.poll()
+            ip_stats = ip_tracker.poll()
+            phase = "DRAINING" if stats.total_flows >= target_flows else "CAPTURING"
+            percent = min(stats.total_flows / target_flows * 100, 100.0)
+            print(
+                f"[segment {segment_index}/{segment_count} {phase} "
+                f"{datetime.now(UTC).strftime('%H:%M:%S')}Z] "
+                f"flows {stats.total_flows} / {target_flows} ({percent:5.1f}%), "
+                f"active {stats.active_flows}, completed {stats.completed_flows}, "
+                f"tcp6 {stats.ipv6_flows}, tcp4 {stats.ipv4_flows}, "
+                f"ip6 {ip_stats.ipv6_packets}, ip4 {ip_stats.ipv4_packets}, "
+                f"udp443-conv {ip_stats.udp_443_conversations}, "
+                f"pcap {_format_bytes(size)}, rate {_format_bytes(int(rate))}/s",
+                flush=True,
+            )
+            if process.poll() is not None:
+                dumpcap_log.close()
+                stderr = dumpcap_log_path.read_text(errors="replace")
+                raise LabError(f"dumpcap stopped unexpectedly: {stderr.strip()}")
+            if stats.total_flows >= target_flows:
+                if target_reached_at is None:
+                    target_reached_at = now
+                    flow_timeout_warning_at = now + finish_timeout_seconds
+                    print(
+                        f"Segment {segment_index}/{segment_count} flow target reached. "
+                        "Do not start new browsing work; waiting for active TCP flows.",
+                        flush=True,
+                    )
+                if stats.active_flows == 0 and rate <= idle_bytes_per_second:
+                    quiet_started_at = quiet_started_at or now
+                else:
+                    quiet_started_at = None
+                if (
+                    quiet_started_at is not None
+                    and now - quiet_started_at >= idle_seconds
+                ):
+                    stop_reason = "target_flows_reached_and_all_flows_closed"
+                    break
+                if (
+                    flow_timeout_warning_at is not None
+                    and now >= flow_timeout_warning_at
+                ):
+                    print(
+                        f"warning: still waiting for {stats.active_flows} active TCP "
+                        "flow(s); capture continues because active TCP flows are not cut.",
+                        flush=True,
+                    )
+                    flow_timeout_warning_at = now + finish_timeout_seconds
+            previous_time = now
+            previous_size = size
+    except KeyboardInterrupt:
+        print("\nStopping capture on user request...", flush=True)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        if not dumpcap_log.closed:
+            dumpcap_log.close()
+        dumpcap_log_text = dumpcap_log_path.read_text(errors="replace")
+
+    ended_at = datetime.now(UTC)
+    final_stats = tracker.poll()
+    final_ip_stats = ip_tracker.poll()
+    final_size = pcap_path.stat().st_size if pcap_path.is_file() else 0
+    metadata = {
+        "schema_version": "1.0.0",
+        "sample_id": sample_id,
+        "series_id": series_id,
+        "segment_index": segment_index,
+        "segment_count": segment_count,
+        "case_id": case_id,
+        "profile": profile,
+        "capture": {
+            "pcap": pcap_path.name,
+            "interface": interface,
+            "bpf": capture_filter,
+            "start_time_utc": started_at.isoformat(),
+            "end_time_utc": ended_at.isoformat(),
+            "target_flows": target_flows,
+            "file_bytes": final_size,
+            "target_met": final_stats.total_flows >= target_flows,
+            "flow_count": final_stats.total_flows,
+            "completed_flow_count": final_stats.completed_flows,
+            "active_flow_count": final_stats.active_flows,
+            "ipv4_flow_count": final_stats.ipv4_flows,
+            "ipv6_flow_count": final_stats.ipv6_flows,
+            "completed_ipv4_flow_count": final_stats.completed_ipv4_flows,
+            "completed_ipv6_flow_count": final_stats.completed_ipv6_flows,
+            "active_ipv4_flow_count": final_stats.active_ipv4_flows,
+            "active_ipv6_flow_count": final_stats.active_ipv6_flows,
+            "ipv4_packets": final_ip_stats.ipv4_packets,
+            "ipv6_packets": final_ip_stats.ipv6_packets,
+            "tcp_packets": final_ip_stats.tcp_packets,
+            "udp_packets": final_ip_stats.udp_packets,
+            "udp_443_conversations": final_ip_stats.udp_443_conversations,
+            "stop_reason": stop_reason,
+            "dumpcap_log": dumpcap_log_text[-2000:],
+        },
+    }
+    (session_dir / "capture.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        f"Segment {segment_index}/{segment_count} stopped: {stop_reason}; "
+        f"final size {_format_bytes(final_size)}, flows {final_stats.total_flows}, "
+        f"active {final_stats.active_flows}\n"
+        f"PCAP: {pcap_path}",
+        flush=True,
+    )
+    return session_dir, stop_reason
+
+
+def _find_windows_dumpcap_for_wsl() -> Path:
+    if os.name == "nt":
+        where_result = subprocess.run(
+            ["where.exe", "dumpcap.exe"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        for line in where_result.stdout.splitlines():
+            candidate = Path(line.strip())
+            if candidate.is_file():
+                return candidate
+        candidates = [
+            Path("C:/Program Files/Wireshark/dumpcap.exe"),
+            Path("C:/Program Files (x86)/Wireshark/dumpcap.exe"),
+            Path("D:/Wireshark/dumpcap.exe"),
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        raise LabError(
+            "Windows dumpcap.exe was not found; install Wireshark with Npcap"
+        )
+    where_result = subprocess.run(
+        ["cmd.exe", "/c", "where", "dumpcap.exe"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    for line in where_result.stdout.splitlines():
+        candidate_text = line.strip()
+        if not candidate_text:
+            continue
+        converted = subprocess.run(
+            ["wslpath", "-u", candidate_text],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if converted.returncode == 0:
+            candidate = Path(converted.stdout.strip())
+            if candidate.is_file():
+                return candidate
+    candidates = [
+        Path("/mnt/c/Program Files/Wireshark/dumpcap.exe"),
+        Path("/mnt/c/Program Files (x86)/Wireshark/dumpcap.exe"),
+        Path("/mnt/d/Wireshark/dumpcap.exe"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise LabError("Windows dumpcap.exe was not found; install Wireshark with Npcap")
+
+
+def _start_windows_no_proxy_browser(*, start_url: str, disable_quic: bool) -> None:
+    root = Path(__file__).resolve().parents[3]
+    script = root / "scripts" / "launch_win_capture_browser.ps1"
+    if not script.is_file():
+        raise LabError(f"missing helper script: {script}")
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        _wslpath_to_windows(script),
+        "-StartUrl",
+        start_url,
+    ]
+    if disable_quic:
+        command.append("-DisableQuic")
+    result = subprocess.run(
+        command,
+        check=False,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise LabError("failed to start Windows no-proxy browser")

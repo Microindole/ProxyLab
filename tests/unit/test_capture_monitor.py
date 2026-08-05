@@ -67,6 +67,32 @@ def test_capture_run_accepts_flow_limits() -> None:
     assert args.target_flows == 3000
 
 
+def test_capture_windows_ipv6_parser() -> None:
+    args = build_parser().parse_args(
+        [
+            "capture",
+            "windows-ipv6",
+            "--interface",
+            "5",
+            "--target-flows",
+            "3000",
+            "--ip-version",
+            "mixed",
+            "--profile",
+            "text-01",
+            "--profile",
+            "text-02",
+            "--start-chrome",
+        ]
+    )
+    assert args.capture_command == "windows-ipv6"
+    assert args.interface == "5"
+    assert args.target_flows == 3000
+    assert args.ip_version == "mixed"
+    assert args.profiles == ["text-01", "text-02"]
+    assert args.start_chrome is True
+
+
 def test_segmented_capture_rotates_only_after_idle(monkeypatch) -> None:
     calls: list[str] = []
     sudo_refreshes: list[None] = []
