@@ -1,10 +1,10 @@
 # 按外层流数量分段的手动 PCAP 采集手册
 
-> 本手册只适用于代理隧道类别 5/6：Windows 浏览器进入 WSL Xray 客户端，
-> WSL 抓取到 VPS 的固定外层隧道流量。
+> 本手册只适用于代理隧道实验类别 5/6：Windows 浏览器进入本地实验客户端，
+> WSL 抓取到授权实验服务器固定端口的外层隧道流量。
 >
 > 普通网页/新闻/视频直连流量的当前流程已经迁移到 Windows 原生环境，
-> 见 `docs/plain-windows-capture-runbook-zh.md`。两套流程不要混用。
+> 见[普通网站采集](plain-capture.md)。两套流程不要混用。
 
 ## 1. 当前范围
 
@@ -35,7 +35,7 @@
 
 ## 4. 采集前检查
 
-关闭 Windows VPN、Clash、v2rayN、TUN、系统代理、日常 Chrome/Edge 和所有后台下载。只保留 Xray客户端。
+关闭 Windows VPN、TUN、系统代理、日常 Chrome/Edge 和所有后台下载。只保留当前实验客户端。
 
 先在正式抓包前，于 WSL执行：
 
@@ -61,7 +61,7 @@ curl \
 
 情况5和情况6共用端口24443，但同一时刻只运行一种配置。不要同时启动两个服务。
 
-先在阿里云服务器终端执行（不是 WSL，也不需要从 WSL 反复 SSH）：
+先在授权实验服务器终端执行（不是 WSL，也不需要从 WSL 反复 SSH）：
 
 ```bash
 cd /root/proxy-traffic-lab
@@ -70,7 +70,7 @@ cd /root/proxy-traffic-lab
 lab server stop
 lab xray render \
   --case class-06-vmess-xhttp-h2-tls \
-  --server-address 47.103.159.9 \
+  --server-address YOUR_SERVER_IP \
   --server-port 24443
 lab xray validate
 lab server start
@@ -80,7 +80,7 @@ lab server status
 然后只同步一次客户端配置。在 WSL 执行：
 
 ```bash
-export VPS_IP=47.103.159.9
+export VPS_IP=YOUR_SERVER_IP
 
 scp root@"$VPS_IP":/root/proxy-traffic-lab/secrets/generated/client.json \
   "$HOME/proxy-lab-client/client.json"
@@ -106,7 +106,7 @@ curl --fail --socks5-hostname 127.0.0.1:10808 \
 ```bash
 cd ~/proxy-traffic-lab
 . .venv/bin/activate
-export VPS_IP="47.103.159.9"
+export VPS_IP="YOUR_SERVER_IP"
 
 sudo -v
 

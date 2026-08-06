@@ -1,145 +1,73 @@
 # 代理流量实验室
 
-一个用于收集加密代理隧道流量的、经过授权且可复现的流水线。
+本项目用于在受控、授权的环境中采集网络流量样本，服务于学习、研究和模型评估。项目关注的是数据采集流程、样本元数据、质量检查和可复现实验记录；不是公共代理部署工具，也不提供规避访问控制的使用指导。
 
-原始冒烟测试里程碑支持
-`VLESS + TCP + TLS`。第一个正式数据集试验支持目标类别 5：
-`VMess + WebSocket + TLS`，使用固定版本的官方 Xray-core
-实现，而不是自定义协议代码。
+English version: [Project overview](docs/en/README.md)
 
-本仓库不是公共代理部署工具包。仅可在你拥有或明确获得授权测试权限的系统和网络上运行。
-代理端口必须限制为采集客户端的源
-IP。绝不要提交凭据、私钥、UUID、令牌、公共 IP 地址或数据包捕获文件。
+## 使用边界
 
-## 当前里程碑
+使用本项目时必须满足以下条件：
 
--   类型化 YAML 配置
--   `lab doctor` 主机诊断
--   适用于 2 核 / 4 GiB 服务器的保守资源限制
--   MVP 场景的协议矩阵验证
--   面向提供商、隔离、采集、流量和数据集的扩展接口
+- 只在你拥有、管理或明确获准测试的设备、账号、网络和服务器上运行。
+- 只采集你有权访问的公开内容或测试内容，不采集私人消息、密码、Cookie、账号令牌或敏感业务数据。
+- 不对第三方网站进行高并发请求、自动化爬取、验证码绕过、压力测试或异常下载。
+- 不将本项目用于提供公共代理、共享出口、绕过网络管理或规避访问控制。
+- 不提交密钥、证书私钥、UUID、访问令牌、真实公网 IP、PCAP 或其他原始采集数据。
 
-## Ubuntu 初始化
+如不确定某个采集场景是否获得授权，应先停止采集并确认权限。
 
-``` bash
-sudo apt update
-sudo apt install -y python3 python3-venv git make iproute2 nftables \
-  tcpdump tshark curl jq openssl
+## 项目当前范围
 
-cd /root/proxy-traffic-lab
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
+当前代码主要支持两类受控采集：
+
+- 普通网站直连流量：在 Windows 上使用 Wireshark/Npcap 的 `dumpcap` 采集浏览器访问公开网站产生的 IPv4/IPv6 混合流量。
+- 代理隧道实验流量：在自有或获授权服务器与本地采集客户端之间采集指定实验类别的外层隧道流量，用于协议形态分类研究。
+
+协议实现依赖已有开源实现；本项目不自行实现代理协议。
+
+## 文档导航
+
+- [普通网站采集](docs/zh/plain-capture.md)：Windows 普通网页、AI 聊天和视频流量采集流程。
+- [代理隧道采集](docs/zh/proxy-capture.md)：类别 5/6 代理隧道实验流量采集流程。
+- [历史容量分段流程](docs/zh/legacy-size-capture.md)：旧的按文件大小分段流程，仅作历史参考。
+- [中文文档索引](docs/zh/README.md)：中文文档入口。
+- [English documentation](docs/en/README.md)：英文说明。
+
+## 快速检查
+
+```bash
 python -m pip install -e '.[dev]'
-cp --update=none .env.example .env
-lab doctor
+lab config validate
+lab matrix list
+lab doctor --no-network
 pytest
 ```
 
-`lab doctor` 会检查 Docker，但本仓库不会使用不可信的一键 Docker
-或代理安装程序。
+Windows 普通流量采集前，先确认 Wireshark/Npcap 和 `dumpcap.exe` 可用：
 
-## 配置
-
-仓库中的文件只包含占位符和非敏感默认值。请将密钥放入 `secrets/` 目录，
-或通过环境变量注入。整个 `secrets/` 目录已被 Git 忽略。
-
-``` bash
-lab config validate
-lab matrix list
-lab doctor --json
+```powershell
+lab capture windows-ipv6 --list-interfaces
 ```
 
-## Xray 准备
+## 数据管理原则
 
-选定的基线是官方 `ghcr.io/xtls/xray-core` 镜像，稳定版本为 `v26.2.6`
-（GHCR 标签
-`26.2.6`）。第一个命令会将该标签解析为不可变仓库摘要，并将结果保存到
-`configs/locks/xray.json`。
+原始 PCAP 可能包含个人信息、设备标识、访问域名、IP 地址和时间戳。建议：
 
-``` bash
-lab xray lock-image
-lab xray init-secrets --server-name lab.invalid --validity-days 30
-lab xray render --server-address YOUR_VPS_PUBLIC_IP --server-port 24443
-lab xray validate
-lab server start
-lab server status
-lab server logs --tail 100
-lab server stop
-```
+- 原始数据只保存在本地受控目录或专用数据盘。
+- 每份 PCAP 保留对应的 `capture.json` 元数据。
+- 对外共享前先做脱敏、过滤或只共享提取后的特征。
+- 训练集标签、采集口径和过滤规则应和 PCAP 一起记录。
 
-所有生成的凭据以及客户端/服务器配置均位于 Git 忽略的 `secrets/` 目录中。
-短期自签名证书通过证书 SHA-256 固定校验；生成的客户端配置不会设置
-`allowInsecure`。
+## 许可、引用和数据产物
 
-在云安全组限制来源为采集客户端公网 `/32` 之前，不要开放端口 `24443`。
-后续数据集分组中，该端口将支持配置化并进行轮换。
+本项目源代码采用 [Mozilla Public License 2.0](LICENSE)。
 
-`lab server start`
-具有幂等性，并会在启动前重新验证生成的客户端和服务器配置。
-服务器以只读模式运行，删除所有 Linux capabilities，无权限提升，限制为：
-一个 CPU、512 MiB 内存以及 128 个进程。
+- 如果在研究、报告、数据集、工具链或派生项目中使用本项目，请在合适位置说明使用了 ProxyLab。
+- 如果分发修改后的项目源代码，包括环境适配、问题修复、新协议形态、采集逻辑或体验改进，应按 MPL-2.0 公开对应修改文件的源代码。
+- 使用本项目采集得到的 PCAP、特征 CSV、训练模型、评估报告和数据集属于运行者的数据产物，不会因为使用本项目而自动受 MPL-2.0 约束。是否公开、如何授权由数据产物持有人自行决定，但仍需遵守法律、授权、隐私和数据来源限制。
 
-## 试验
+引用信息见 [CITATION.cff](CITATION.cff)。
 
-当前有两套采集流程，按目标选择，不要混用：
+## 开发状态
 
-- 普通网页/视频直连流量（Win11 + Wireshark/Npcap + mixed IPv4/IPv6）：
-  [`docs/plain-windows-capture-runbook-zh.md`](docs/plain-windows-capture-runbook-zh.md)
-- 代理隧道类别 5/6（WSL 客户端 + VPS 服务端 + 外层 TCP 流分段）：
-  [`docs/flow-limited-capture-runbook-zh.md`](docs/flow-limited-capture-runbook-zh.md)
-
-旧的按 1 GiB 分段流程只作为历史参考保留：
-[`docs/formal-capture-runbook-zh.md`](docs/formal-capture-runbook-zh.md)。
-
-在服务器端渲染类别 5。此操作只替换被忽略的生成配置，不会替换证书或凭据。
-
-``` bash
-lab xray render \
-  --case class-05-vmess-websocket-tls \
-  --server-address YOUR_VPS_PUBLIC_IP \
-  --server-port 24443
-lab xray validate
-lab server start
-lab server status
-```
-
-将 `secrets/generated/client.json` 复制到采集主机，然后在采集主机运行：
-
-``` bash
-lab client start --config ~/proxy-lab-client/client.json
-lab client status
-curl --fail --socks5-hostname 127.0.0.1:10808 https://example.com/ -o /dev/null
-```
-
-在试验前预热 sudo 凭据，因为采集过程使用非交互式 sudo。 Chromium
-运行期间不会弹出提示：
-
-``` bash
-sudo -v
-export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
-
-lab experiment web \
-  --case class-05-vmess-websocket-tls \
-  --server-ip YOUR_VPS_PUBLIC_IP \
-  --server-port 24443 \
-  --duration 120 \
-  --max-pages 12 \
-  --url https://example.com/ \
-  --url https://www.iana.org/help/example-domains \
-  --output-root ~/proxy-lab-data
-```
-
-每次试验都会存储在：
-
-`~/proxy-lab-data/pilot/class-05-vmess-websocket-tls/<sample-id>/`
-
-其中包含：
-
--   `capture.pcap`
--   `metadata.json`
--   `traffic.jsonl`
--   `manifest.sha256`
-
-只能使用允许自动化访问的 URL。Web 试验是正确性验证门槛， 不是最终 5 GiB
-类别数据采集。
+本项目仍在实验阶段。采集口径会随任务目标调整，例如普通文本流量和视频流量的流数统计定义不同。正式使用某批数据前，应先用 Wireshark/tshark 或项目审计脚本复核样本数量、协议分布和背景噪声。

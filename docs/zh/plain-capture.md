@@ -1,11 +1,11 @@
 # Windows 普通网页/视频 PCAP 采集手册
 
 本手册用于采集 Win11 浏览器直连网站产生的普通流量，不经过 WSL Xray
-客户端，也不经过阿里云代理服务器。适用目标是普通 IPv4/IPv6 网页、
+客户端，也不经过授权实验服务器。适用目标是普通 IPv4/IPv6 网页、
 新闻、视频等真实访问流量。
 
-代理协议类别 5/6 的采集流程仍见
-`docs/flow-limited-capture-runbook-zh.md`。两套流程不要混用。
+代理隧道实验类别 5/6 的采集流程见[代理隧道采集](proxy-capture.md)。
+两套流程不要混用。
 
 ## 1. 当前推荐环境
 
@@ -42,13 +42,13 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## 2. 和之前代理采集的区别
 
-之前代理数据链路是：
+代理隧道实验数据链路是：
 
 ```text
-Win11 Chrome -> 127.0.0.1:10808 SOCKS -> WSL/Docker Xray client -> VPS
+Win11 Chrome -> 127.0.0.1:10808 SOCKS -> WSL/Docker client -> 授权实验服务器
 ```
 
-WSL 可以抓到 Xray client 发往固定 VPS 端口的外层代理流量。
+WSL 可以抓到本地实验客户端发往授权实验服务器固定端口的外层隧道流量。
 
 本手册的普通网页数据链路是：
 
@@ -114,7 +114,8 @@ pcap 9.77 MiB, rate 2.21 KiB/s
 
 含义：
 
-- `flows`：TCP 总流数，默认只统计看到 SYN-ACK 的 established 连接；
+- `flows`：当前 profile 使用的目标流数；`video-*` 为 TCP+UDP L4
+  conversations，其他 profile 默认为看到 SYN-ACK 的 established TCP 连接；
   达到 `--target-flows` 后进入 DRAINING
 - `active`：仍未关闭的 TCP 流，只供观察，不作为普通网页自动停止条件
 - `completed`：已关闭的 TCP 流
@@ -128,11 +129,12 @@ pcap 9.77 MiB, rate 2.21 KiB/s
 普通 Windows 采集默认使用：
 
 ```text
---flow-count-mode established
+--flow-count-mode auto
 ```
 
-这会过滤只有 SYN、没有 SYN-ACK 的失败连接或大量 SYN 重传。若需要和早期实验完全一致，
-可以显式使用 `--flow-count-mode syn`，但普通网页/AI 聊天不建议这样做。
+`auto` 会对 `video-*` profile 使用 TCP+UDP L4 会话口径，对其他 profile
+使用 established TCP 口径。若需要和早期实验完全一致，可以显式使用
+`--flow-count-mode syn`，但普通网页/AI 聊天不建议这样做。
 
 达到目标流数后，停止打开新页面。普通网页模式不会等待 `active == 0`，
 而是等待 PCAP 写入速率低于空闲阈值并持续 `--idle-seconds` 后自动封尾。
@@ -253,8 +255,9 @@ lab capture windows-ipv6 `
 
 ## 7. 视频采集命令
 
-视频不要加 `--disable-quic`，保留真实 QUIC/HTTP3 行为。`flows` 仍统计 TCP
-流，UDP/QUIC 用 `udp443-conv` 观察。
+视频不要加 `--disable-quic`，保留真实 QUIC/HTTP3 行为。`video-*`
+profile 在 `--flow-count-mode auto` 下会自动使用 TCP+UDP L4 conversation
+口径，接近 Wireshark `Statistics -> Conversations` 中 TCP 与 UDP 页签的合计。
 
 B 站：
 
@@ -262,7 +265,7 @@ B 站：
 lab capture windows-ipv6 `
   --interface 4 `
   --ip-version mixed `
-  --target-flows 1500 `
+  --target-flows 3000 `
   --output-root $outputRoot `
   --profile video-bilibili-01 `
   --profile video-bilibili-02 `
@@ -280,7 +283,7 @@ lab capture windows-ipv6 `
 lab capture windows-ipv6 `
   --interface 4 `
   --ip-version mixed `
-  --target-flows 1500 `
+  --target-flows 3000 `
   --output-root $outputRoot `
   --profile video-vqq-01 `
   --profile video-vqq-02 `
@@ -298,7 +301,7 @@ lab capture windows-ipv6 `
 lab capture windows-ipv6 `
   --interface 4 `
   --ip-version mixed `
-  --target-flows 1500 `
+  --target-flows 3000 `
   --output-root $outputRoot `
   --profile video-ixigua-01 `
   --profile video-ixigua-02 `
@@ -320,9 +323,12 @@ Get-ChildItem "D:\works\proxy-lab-data\plain" -Recurse -Filter capture.json |
     $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
     [PSCustomObject]@{
       profile = $j.profile
+      mode = $j.capture.flow_count_mode
       flows = $j.capture.flow_count
-      tcp6 = $j.capture.ipv6_flow_count
-      tcp4 = $j.capture.ipv4_flow_count
+      l4tcp = $j.capture.tcp_conversation_count
+      l4udp = $j.capture.udp_conversation_count
+      flow6 = $j.capture.ipv6_flow_count
+      flow4 = $j.capture.ipv4_flow_count
       completed = $j.capture.completed_flow_count
       active = $j.capture.active_flow_count
       ip6_packets = $j.capture.ipv6_packets
@@ -340,7 +346,8 @@ Get-ChildItem "D:\works\proxy-lab-data\plain" -Recurse -Filter capture.json |
 - `flows >= target_flows`
 - `stop == target_flows_reached_and_traffic_idle`
 - `active` 可以大于 0；普通网页数据不以 active 归零作为合格条件
-- `tcp6` 或 `tcp4` 符合你的后续筛选需求
+- `video-*` 样本重点看 `l4tcp + l4udp` 是否达到目标
+- `flow6` 或 `flow4` 符合你的后续筛选需求
 
 如果手动 `Ctrl+C`，该 PCAP 可作为试验或补充样本，但不算标准完成样本。
 

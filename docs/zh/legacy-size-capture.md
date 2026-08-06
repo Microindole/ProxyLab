@@ -1,10 +1,10 @@
-# 正式 PCAP 采集操作手册（WSL 客户端 + 阿里云服务器）
+# 历史容量分段流程（WSL 客户端 + 授权实验服务器）
 
-> 已过时：本手册按 1 GiB 分段，不符合当前“每份约 3000 个完整外层流”的要求。新的正式流程见 `docs/flow-limited-capture-runbook-zh.md`。本文件只保留作历史参考。
+> 已过时：本手册按 1 GiB 分段，不符合当前“每份约 3000 个完整外层流”的要求。新的正式流程见[代理隧道采集](proxy-capture.md)。本文件只保留作历史参考。
 
 ## 1. 本手册的适用范围
 
-本手册用于采集代理客户端与阿里云代理服务器之间的真实隧道流量。当前已经端到端验证、可以正式采集的是：
+本手册用于采集本地实验客户端与授权实验服务器之间的隧道流量。当前已经端到端验证、可以正式采集的是：
 
 - 数据类别：5
 - Case ID：`class-05-vmess-websocket-tls`
@@ -23,7 +23,7 @@
 /home/indole/proxy-lab-data/formal/
 ```
 
-不是保存在阿里云服务器。Windows 可以通过下面的位置查看，但正式抓包期间不要移动或修改正在增长的文件：
+不是保存在实验服务器。Windows 可以通过下面的位置查看，但正式抓包期间不要移动或修改正在增长的文件：
 
 ```text
 \\wsl.localhost\Ubuntu\home\indole\proxy-lab-data\formal
@@ -58,7 +58,7 @@
 
 准备三个相互独立的终端：
 
-- 终端 S：阿里云服务器终端，只负责服务端。
+- 终端 S：授权实验服务器终端，只负责服务端。
 - 终端 A：WSL 抓包终端，前台运行 `lab capture run`。
 - 终端 B：Windows PowerShell，只负责启动强制使用 WSL SOCKS5 的专用 Chrome。
 
@@ -66,9 +66,9 @@
 
 建议同时关闭普通 Chrome、Edge 等无关浏览器，避免误操作和带宽竞争。专用 Chrome 使用独立用户目录，与日常 Chrome 分开。
 
-## 4. 第一步：检查阿里云服务端
+## 4. 第一步：检查授权实验服务器
 
-在“终端 S（阿里云服务器）”执行：
+在“终端 S（授权实验服务器）”执行：
 
 ```bash
 cd /root/proxy-traffic-lab
@@ -100,7 +100,7 @@ lab server status
 ss -lnt | grep ':24443'
 ```
 
-阿里云安全组只应允许当前采集客户端的公网 IP/CIDR 访问 TCP `24443`，不要为了方便向全网永久开放。家庭和公司的公网出口 IP 可能不同，切换网络后应更新安全组来源地址。
+云防火墙或安全组规则只应允许当前采集客户端的公网 IP/CIDR 访问实验端口，不要为了方便向全网永久开放。家庭和公司的公网出口 IP 可能不同，切换网络后应更新来源地址。
 
 ## 5. 第二步：检查 WSL 环境和磁盘
 
@@ -122,10 +122,10 @@ unset HTTP_PROXY HTTPS_PROXY ALL_PROXY
 unset http_proxy https_proxy all_proxy
 ```
 
-设置阿里云公网 IP：
+设置授权实验服务器公网 IP：
 
 ```bash
-export VPS_IP="47.103.159.9"
+export VPS_IP="YOUR_SERVER_IP"
 ```
 
 如服务器 IP 以后改变，只修改这里，不要盲目复制旧值。
@@ -183,7 +183,7 @@ curl \
 lab client logs --tail 100
 ```
 
-同时在阿里云“终端 S”检查：
+同时在授权实验服务器“终端 S”检查：
 
 ```bash
 lab server logs --tail 100
@@ -206,7 +206,7 @@ curl.exe `
   https://example.com/
 ```
 
-这验证了 Windows 应用可以进入 WSL 中的 Xray 客户端。正式 PCAP 仍由 WSL 在 `eth0` 上抓取到阿里云端口的外层隧道；Windows 到 `127.0.0.1:10808` 的本地转发段不会混入该 PCAP。
+这验证了 Windows 应用可以进入 WSL 中的实验客户端。正式 PCAP 仍由 WSL 在 `eth0` 上抓取到授权实验服务器端口的外层隧道；Windows 到 `127.0.0.1:10808` 的本地转发段不会混入该 PCAP。
 
 不要再使用 WSLg/Playwright Chromium 进行正式采集。WSLg 窗口可能出现不可见、方框字体或任务栏幽灵窗口；Windows 专用 Chrome 更稳定，并且已经通过上述 SOCKS 测试保证走同一条 Xray 隧道。
 
@@ -217,7 +217,7 @@ curl.exe `
 ```bash
 cd ~/proxy-traffic-lab
 . .venv/bin/activate
-export VPS_IP="47.103.159.9"
+export VPS_IP="YOUR_SERVER_IP"
 
 sudo -v
 ```
@@ -681,7 +681,7 @@ ss -lnt | grep '127.0.0.1:10808'
 切换网络后重新确认：
 
 - Windows VPN、TUN 和系统代理已关闭。
-- 阿里云安全组允许当前公网出口 IP 访问 TCP 24443。
+- 云防火墙或安全组规则允许当前公网出口 IP 访问实验端口。
 - `ip route get "$VPS_IP"` 返回预期 WSL 网卡。
 - SOCKS5 curl 测试返回 HTTP 200。
 
@@ -696,7 +696,7 @@ ss -lnt | grep '127.0.0.1:10808'
 ```bash
 cd ~/proxy-traffic-lab
 . .venv/bin/activate
-export VPS_IP="47.103.159.9"
+export VPS_IP="YOUR_SERVER_IP"
 
 sudo -v
 

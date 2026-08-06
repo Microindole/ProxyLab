@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: ProxyLab
+message: "If you use ProxyLab in research, reports, datasets, tools, or derived projects, please acknowledge or cite this repository."
+type: software
+authors:
+  - name: Microindole
+repository-code: "https://github.com/Microindole/ProxyLab"
+license: MPL-2.0
+abstract: "A controlled traffic-capture workspace for collecting authorized network traffic samples for learning, research, and model evaluation."
