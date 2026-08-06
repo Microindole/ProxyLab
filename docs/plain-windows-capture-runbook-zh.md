@@ -114,8 +114,9 @@ pcap 9.77 MiB, rate 2.21 KiB/s
 
 含义：
 
-- `flows`：TCP 总流数，达到 `--target-flows` 后进入 DRAINING
-- `active`：仍未关闭的 TCP 流
+- `flows`：TCP 总流数，默认只统计看到 SYN-ACK 的 established 连接；
+  达到 `--target-flows` 后进入 DRAINING
+- `active`：仍未关闭的 TCP 流，只供观察，不作为普通网页自动停止条件
 - `completed`：已关闭的 TCP 流
 - `tcp6`：IPv6 TCP 流数
 - `tcp4`：IPv4 TCP 流数
@@ -124,8 +125,18 @@ pcap 9.77 MiB, rate 2.21 KiB/s
 - `udp443-conv`：UDP/443 会话数，常见于 QUIC/HTTP3
 - `rate`：PCAP 文件增长速度
 
-达到目标流数后，停止打开新页面，等待活动 TCP 流关闭。不要为了切分 PCAP
-强行杀进程。
+普通 Windows 采集默认使用：
+
+```text
+--flow-count-mode established
+```
+
+这会过滤只有 SYN、没有 SYN-ACK 的失败连接或大量 SYN 重传。若需要和早期实验完全一致，
+可以显式使用 `--flow-count-mode syn`，但普通网页/AI 聊天不建议这样做。
+
+达到目标流数后，停止打开新页面。普通网页模式不会等待 `active == 0`，
+而是等待 PCAP 写入速率低于空闲阈值并持续 `--idle-seconds` 后自动封尾。
+这是因为浏览器、HTTP/2 和网站 CDN 会长期保留 TCP 连接。
 
 ## 5. 重要故障判断
 
@@ -148,6 +159,13 @@ Get-ChildItem D:\works\proxy-lab-data\plain -Recurse -Filter dumpcap.log |
 
 如果 `flows` 不涨但 `ip6/ip4` 包数还在涨，通常是 HTTP/2/HTTP/3 连接复用。
 继续停留同一页面不会明显增加 TCP 流，应该打开新的站内页面或降低单份目标。
+
+如果 `active` 很高但 `rate` 已经很低，这是普通网页采集的常见情况。当前
+Windows plain 模式会在达到目标流数后按 `rate` 空闲自动切下一份，不再等待
+所有 TCP 流关闭。
+
+如果 PCAP 很小但 `flows` 很多，通常表示页面产生了大量小连接、失败连接或后台连接。
+当前默认 established 口径会减少这类噪声；仍然建议结合 SNI/DNS 审计判断样本纯度。
 
 对真实网站，推荐目标是：
 
@@ -320,8 +338,8 @@ Get-ChildItem "D:\works\proxy-lab-data\plain" -Recurse -Filter capture.json |
 可用样本优先满足：
 
 - `flows >= target_flows`
-- `active == 0`
-- `stop == target_flows_reached_and_all_flows_closed`
+- `stop == target_flows_reached_and_traffic_idle`
+- `active` 可以大于 0；普通网页数据不以 active 归零作为合格条件
 - `tcp6` 或 `tcp4` 符合你的后续筛选需求
 
 如果手动 `Ctrl+C`，该 PCAP 可作为试验或补充样本，但不算标准完成样本。

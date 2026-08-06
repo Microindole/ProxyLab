@@ -13,7 +13,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from proxy_traffic_lab.capture.experiment import _format_bytes
-from proxy_traffic_lab.capture.flow_tracker import PcapIpPacketTracker, PcapTcpFlowTracker
+from proxy_traffic_lab.capture.flow_tracker import (
+    PcapIpPacketTracker,
+    PcapL4ConversationTracker,
+    PcapTcpFlowTracker,
+)
 from proxy_traffic_lab.capture.experiment import (
     run_segmented_capture,
     run_web_capture,
@@ -207,6 +211,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="capture only IPv6, or mixed IPv4+IPv6; default: mixed",
     )
     capture_win_ipv6.add_argument("--target-flows", type=int)
+    capture_win_ipv6.add_argument(
+        "--flow-count-mode",
+        choices=("auto", "established", "syn", "conversation-5tuple"),
+        default="auto",
+        help=(
+            "flow counting mode for plain Windows capture; auto uses "
+            "conversation-5tuple for video-* profiles and established TCP for "
+            "other profiles"
+        ),
+    )
     capture_win_ipv6.add_argument("--progress-interval", type=float, default=5.0)
     capture_win_ipv6.add_argument("--idle-seconds", type=float, default=15.0)
     capture_win_ipv6.add_argument("--idle-kib-per-second", type=float, default=32.0)
@@ -462,6 +476,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 session_dirs = _run_windows_ipv6_flow_capture(
                     interface=args.interface,
                     ip_version=args.ip_version,
+                    flow_count_mode=args.flow_count_mode,
                     target_flows=args.target_flows,
                     output_root=args.output_root,
                     profiles=args.profiles or ["mixed"],
@@ -540,6 +555,7 @@ def _run_windows_ipv6_flow_capture(
     *,
     interface: str,
     ip_version: str,
+    flow_count_mode: str,
     target_flows: int,
     output_root: Path,
     profiles: Sequence[str],
@@ -563,6 +579,10 @@ def _run_windows_ipv6_flow_capture(
         _start_windows_no_proxy_browser(start_url=start_url, disable_quic=disable_quic)
 
     for segment_index, profile in enumerate(profiles, start=1):
+        segment_flow_count_mode = _resolve_windows_plain_flow_count_mode(
+            profile=profile,
+            requested_mode=flow_count_mode,
+        )
         if segment_index > 1:
             print(
                 f"Starting segment {segment_index}/{segment_count}: {profile}. "
@@ -573,6 +593,8 @@ def _run_windows_ipv6_flow_capture(
             dumpcap=dumpcap,
             interface=interface,
             ip_version=ip_version,
+            flow_count_mode=segment_flow_count_mode,
+            requested_flow_count_mode=flow_count_mode,
             target_flows=target_flows,
             output_root=output_root,
             profile=profile,
@@ -587,7 +609,7 @@ def _run_windows_ipv6_flow_capture(
         sessions.append(session_dir)
         if segment_index == segment_count:
             break
-        if stop_reason != "target_flows_reached_and_all_flows_closed":
+        if stop_reason != "target_flows_reached_and_traffic_idle":
             print(
                 f"Series stopped after segment {segment_index}: {stop_reason}.",
                 flush=True,
@@ -596,11 +618,26 @@ def _run_windows_ipv6_flow_capture(
     return tuple(sessions)
 
 
+def _resolve_windows_plain_flow_count_mode(
+    *,
+    profile: str,
+    requested_mode: str,
+) -> str:
+    if requested_mode != "auto":
+        return requested_mode
+    normalized = profile.lower().replace("_", "-")
+    if normalized.startswith("video"):
+        return "conversation-5tuple"
+    return "established"
+
+
 def _capture_windows_ipv6_flow_segment(
     *,
     dumpcap: Path,
     interface: str,
     ip_version: str,
+    flow_count_mode: str,
+    requested_flow_count_mode: str,
     target_flows: int,
     output_root: Path,
     profile: str,
@@ -655,7 +692,11 @@ def _capture_windows_ipv6_flow_segment(
         stdout=dumpcap_log,
         stderr=subprocess.STDOUT,
     )
-    tracker = PcapTcpFlowTracker(pcap_path)
+    tracker = (
+        PcapL4ConversationTracker(pcap_path)
+        if flow_count_mode == "conversation-5tuple"
+        else PcapTcpFlowTracker(pcap_path, count_mode=flow_count_mode)
+    )
     ip_tracker = PcapIpPacketTracker(pcap_path)
     stop_reason = "interrupted"
     target_reached_at: float | None = None
@@ -663,12 +704,18 @@ def _capture_windows_ipv6_flow_segment(
     flow_timeout_warning_at: float | None = None
     previous_time = time.monotonic()
     previous_size = 0
+    target_label = (
+        "TCP+UDP 5-tuple conversations"
+        if flow_count_mode == "conversation-5tuple"
+        else f"TCP flows ({flow_count_mode})"
+    )
     print(
         f"READY segment {segment_index}/{segment_count}: {profile}\n"
         f"Capturing plain {ip_version} on Windows interface {interface} to {pcap_path}\n"
         f"Filter: {capture_filter}\n"
-        f"Target: {target_flows} TCP flows; after target, stop opening new pages "
-        "and let active flows close. Press Ctrl+C to stop early.",
+        f"Target: {target_flows} {target_label}; after target, stop opening new pages "
+        "and wait for PCAP write rate to become idle. Active TCP flows are reported "
+        "but do not block plain website rotation. Press Ctrl+C to stop early.",
         flush=True,
     )
     try:
@@ -692,7 +739,8 @@ def _capture_windows_ipv6_flow_segment(
                 f"{datetime.now(UTC).strftime('%H:%M:%S')}Z] "
                 f"flows {stats.total_flows} / {target_flows} ({percent:5.1f}%), "
                 f"active {stats.active_flows}, completed {stats.completed_flows}, "
-                f"tcp6 {stats.ipv6_flows}, tcp4 {stats.ipv4_flows}, "
+                f"l4tcp {stats.tcp_conversations}, l4udp {stats.udp_conversations}, "
+                f"flow6 {stats.ipv6_flows}, flow4 {stats.ipv4_flows}, "
                 f"ip6 {ip_stats.ipv6_packets}, ip4 {ip_stats.ipv4_packets}, "
                 f"udp443-conv {ip_stats.udp_443_conversations}, "
                 f"pcap {_format_bytes(size)}, rate {_format_bytes(int(rate))}/s",
@@ -708,10 +756,10 @@ def _capture_windows_ipv6_flow_segment(
                     flow_timeout_warning_at = now + finish_timeout_seconds
                     print(
                         f"Segment {segment_index}/{segment_count} flow target reached. "
-                        "Do not start new browsing work; waiting for active TCP flows.",
+                        "Do not start new browsing work; waiting for traffic idle.",
                         flush=True,
                     )
-                if stats.active_flows == 0 and rate <= idle_bytes_per_second:
+                if rate <= idle_bytes_per_second:
                     quiet_started_at = quiet_started_at or now
                 else:
                     quiet_started_at = None
@@ -719,15 +767,15 @@ def _capture_windows_ipv6_flow_segment(
                     quiet_started_at is not None
                     and now - quiet_started_at >= idle_seconds
                 ):
-                    stop_reason = "target_flows_reached_and_all_flows_closed"
+                    stop_reason = "target_flows_reached_and_traffic_idle"
                     break
                 if (
                     flow_timeout_warning_at is not None
                     and now >= flow_timeout_warning_at
                 ):
                     print(
-                        f"warning: still waiting for {stats.active_flows} active TCP "
-                        "flow(s); capture continues because active TCP flows are not cut.",
+                        f"warning: still waiting for traffic idle; active TCP flows "
+                        f"currently {stats.active_flows}.",
                         flush=True,
                     )
                     flow_timeout_warning_at = now + finish_timeout_seconds
@@ -766,9 +814,23 @@ def _capture_windows_ipv6_flow_segment(
             "start_time_utc": started_at.isoformat(),
             "end_time_utc": ended_at.isoformat(),
             "target_flows": target_flows,
+            "requested_flow_count_mode": requested_flow_count_mode,
+            "flow_count_mode": flow_count_mode,
+            "flow_count_definition": (
+                "bidirectional TCP plus UDP L4 5-tuple conversations, matching "
+                "Wireshark Conversations TCP+UDP counts"
+                if flow_count_mode == "conversation-5tuple"
+                else (
+                    "TCP connections with observed SYN-ACK"
+                    if flow_count_mode == "established"
+                    else "TCP SYN starts"
+                )
+            ),
             "file_bytes": final_size,
             "target_met": final_stats.total_flows >= target_flows,
             "flow_count": final_stats.total_flows,
+            "tcp_conversation_count": final_stats.tcp_conversations,
+            "udp_conversation_count": final_stats.udp_conversations,
             "completed_flow_count": final_stats.completed_flows,
             "active_flow_count": final_stats.active_flows,
             "ipv4_flow_count": final_stats.ipv4_flows,

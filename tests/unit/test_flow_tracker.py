@@ -2,7 +2,11 @@ import ipaddress
 import struct
 from pathlib import Path
 
-from proxy_traffic_lab.capture.flow_tracker import PcapIpPacketTracker, PcapTcpFlowTracker
+from proxy_traffic_lab.capture.flow_tracker import (
+    PcapIpPacketTracker,
+    PcapL4ConversationTracker,
+    PcapTcpFlowTracker,
+)
 
 
 def _tcp_frame(
@@ -264,6 +268,157 @@ def test_tracker_reports_ipv4_and_ipv6_flow_counts(tmp_path: Path) -> None:
     assert stats.active_ipv4_flows == 1
     assert stats.active_ipv6_flows == 0
     assert stats.completed_ipv6_flows == 1
+
+
+def test_tracker_established_mode_ignores_unanswered_syn(tmp_path: Path) -> None:
+    path = tmp_path / "capture.pcap"
+    path.write_bytes(
+        _pcap(
+            [
+                _tcp_frame(
+                    source="192.0.2.10",
+                    destination="203.0.113.20",
+                    source_port=51000,
+                    destination_port=443,
+                    sequence=10,
+                    flags=0x02,
+                ),
+                _tcp_frame(
+                    source="192.0.2.10",
+                    destination="203.0.113.20",
+                    source_port=51000,
+                    destination_port=443,
+                    sequence=10,
+                    flags=0x02,
+                ),
+                _tcp_frame(
+                    source="203.0.113.20",
+                    destination="192.0.2.10",
+                    source_port=443,
+                    destination_port=51000,
+                    sequence=20,
+                    flags=0x12,
+                ),
+                _tcp_frame(
+                    source="192.0.2.10",
+                    destination="203.0.113.20",
+                    source_port=51001,
+                    destination_port=443,
+                    sequence=30,
+                    flags=0x02,
+                ),
+            ]
+        )
+    )
+
+    syn_stats = PcapTcpFlowTracker(path).poll()
+    established_stats = PcapTcpFlowTracker(path, count_mode="established").poll()
+
+    assert syn_stats.total_flows == 2
+    assert established_stats.total_flows == 1
+    assert established_stats.ipv4_flows == 1
+
+
+def test_l4_conversation_tracker_counts_tcp_and_udp_5tuples(tmp_path: Path) -> None:
+    path = tmp_path / "capture.pcap"
+    path.write_bytes(
+        _pcap(
+            [
+                # Mid-stream TCP still counts as a Wireshark-style conversation.
+                _tcp_frame(
+                    source="192.0.2.10",
+                    destination="203.0.113.20",
+                    source_port=51000,
+                    destination_port=443,
+                    sequence=10,
+                    flags=0x18,
+                ),
+                # Reverse direction is the same bidirectional 5-tuple.
+                _tcp_frame(
+                    source="203.0.113.20",
+                    destination="192.0.2.10",
+                    source_port=443,
+                    destination_port=51000,
+                    sequence=20,
+                    flags=0x18,
+                ),
+                _tcp6_frame(
+                    source="2001:db8::10",
+                    destination="2001:db8::20",
+                    source_port=52000,
+                    destination_port=443,
+                    sequence=30,
+                    flags=0x02,
+                ),
+                _udp6_frame(
+                    source="2001:db8::10",
+                    destination="2001:db8::20",
+                    source_port=53000,
+                    destination_port=443,
+                ),
+                _udp6_frame(
+                    source="2001:db8::20",
+                    destination="2001:db8::10",
+                    source_port=443,
+                    destination_port=53000,
+                ),
+            ]
+        )
+    )
+
+    stats = PcapL4ConversationTracker(path).poll()
+
+    assert stats.total_flows == 3
+    assert stats.tcp_conversations == 2
+    assert stats.udp_conversations == 1
+    assert stats.ipv4_flows == 1
+    assert stats.ipv6_flows == 2
+    assert stats.active_flows == 0
+
+
+def test_l4_conversation_tracker_counts_reused_tcp_5tuple_streams(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "capture.pcap"
+    path.write_bytes(
+        _pcap(
+            [
+                _tcp_frame(
+                    source="192.0.2.10",
+                    destination="203.0.113.20",
+                    source_port=51000,
+                    destination_port=443,
+                    sequence=10,
+                    flags=0x02,
+                ),
+                # Same 5-tuple reused later with a different ISN is a second
+                # Wireshark-style TCP stream.
+                _tcp_frame(
+                    source="192.0.2.10",
+                    destination="203.0.113.20",
+                    source_port=51000,
+                    destination_port=443,
+                    sequence=999,
+                    flags=0x02,
+                ),
+                # Retransmitted SYN is not a third stream.
+                _tcp_frame(
+                    source="192.0.2.10",
+                    destination="203.0.113.20",
+                    source_port=51000,
+                    destination_port=443,
+                    sequence=999,
+                    flags=0x02,
+                ),
+            ]
+        )
+    )
+
+    stats = PcapL4ConversationTracker(path).poll()
+
+    assert stats.total_flows == 2
+    assert stats.tcp_conversations == 2
+    assert stats.udp_conversations == 0
 
 
 def test_ip_packet_tracker_counts_families_and_udp_443(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from proxy_traffic_lab.capture import experiment
 from proxy_traffic_lab.capture.experiment import _format_bytes
+from proxy_traffic_lab.controller import cli
 from proxy_traffic_lab.controller.cli import build_parser
 
 
@@ -89,8 +90,62 @@ def test_capture_windows_ipv6_parser() -> None:
     assert args.interface == "5"
     assert args.target_flows == 3000
     assert args.ip_version == "mixed"
+    assert args.flow_count_mode == "auto"
     assert args.profiles == ["text-01", "text-02"]
     assert args.start_chrome is True
+
+
+def test_windows_plain_auto_uses_conversations_for_video_only() -> None:
+    assert (
+        cli._resolve_windows_plain_flow_count_mode(
+            profile="video-bilibili-01",
+            requested_mode="auto",
+        )
+        == "conversation-5tuple"
+    )
+    assert (
+        cli._resolve_windows_plain_flow_count_mode(
+            profile="text-ai-kimi-01",
+            requested_mode="auto",
+        )
+        == "established"
+    )
+    assert (
+        cli._resolve_windows_plain_flow_count_mode(
+            profile="video-bilibili-01",
+            requested_mode="syn",
+        )
+        == "syn"
+    )
+
+
+def test_windows_plain_capture_continues_after_traffic_idle(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_segment(**kwargs):
+        calls.append(kwargs["profile"])
+        return Path(f"/{kwargs['profile']}"), "target_flows_reached_and_traffic_idle"
+
+    monkeypatch.setattr(cli, "_find_windows_dumpcap_for_wsl", lambda: Path("dumpcap.exe"))
+    monkeypatch.setattr(cli, "_capture_windows_ipv6_flow_segment", fake_segment)
+    sessions = cli._run_windows_ipv6_flow_capture(
+        interface="4",
+        ip_version="mixed",
+        flow_count_mode="established",
+        target_flows=1500,
+        output_root=Path("/data"),
+        profiles=("one", "two"),
+        start_chrome=False,
+        start_url="about:blank",
+        disable_quic=True,
+        progress_interval_seconds=2,
+        idle_seconds=15,
+        idle_bytes_per_second=32 * 1024,
+        finish_timeout_seconds=300,
+    )
+
+    assert calls == ["one", "two"]
+    assert sessions == (Path("/one"), Path("/two"))
 
 
 def test_segmented_capture_rotates_only_after_idle(monkeypatch) -> None:
