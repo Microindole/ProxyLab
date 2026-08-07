@@ -49,6 +49,34 @@ from proxy_traffic_lab.providers.xray import (
 )
 
 
+class TerminalDashboard:
+    """Small alternate-screen dashboard for live capture progress only."""
+
+    def __init__(self) -> None:
+        self._active = False
+
+    def __enter__(self) -> TerminalDashboard:
+        if sys.stdout.isatty():
+            sys.stdout.write("\x1b[?1049h\x1b[?25l\x1b[H\x1b[2J")
+            sys.stdout.flush()
+            self._active = True
+        return self
+
+    def render(self, text: str) -> None:
+        if self._active:
+            sys.stdout.write("\x1b[H\x1b[2J")
+            sys.stdout.write(text)
+            sys.stdout.flush()
+        else:
+            print(text, flush=True)
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+        if self._active:
+            sys.stdout.write("\x1b[?25h\x1b[?1049l")
+            sys.stdout.flush()
+            self._active = False
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="lab")
     parser.add_argument(
@@ -656,6 +684,74 @@ def _resolve_windows_plain_flow_count_mode(
     return "established"
 
 
+def _progress_bar(
+    *,
+    value: float,
+    total: float,
+    width: int = 28,
+) -> str:
+    if total <= 0:
+        total = 1
+    ratio = max(0.0, min(value / total, 1.0))
+    filled = int(round(ratio * width))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _render_windows_capture_progress(
+    *,
+    segment_index: int,
+    segment_count: int,
+    phase: str,
+    profile: str,
+    pcap_path: Path,
+    stats: object,
+    ip_stats: object,
+    target_flows: int,
+    size: int,
+    rate: float,
+    status: str,
+) -> str:
+    flow_total_for_bar = max(target_flows, stats.total_flows, 1)
+    l4_total_for_bar = max(stats.tcp_conversations + stats.udp_conversations, 1)
+    ip_flow_total_for_bar = max(stats.ipv4_flows + stats.ipv6_flows, 1)
+    packet_total_for_bar = max(ip_stats.ipv4_packets + ip_stats.ipv6_packets, 1)
+    percent = min(stats.total_flows / target_flows * 100, 100.0)
+
+    def metric_line(label: str, value: int, total: int, suffix: str = "") -> str:
+        return (
+            f"{label:<12} "
+            f"[{_progress_bar(value=value, total=total)}] "
+            f"{value:>8} / {total:<8} {suffix}"
+        )
+
+    return "\n".join(
+        [
+            f"segment {segment_index}/{segment_count}  {phase}  "
+            f"{datetime.now(UTC).strftime('%H:%M:%S')}Z",
+            f"profile     {profile}",
+            f"pcap        {pcap_path}",
+            f"status      {status}",
+            metric_line(
+                "flows",
+                stats.total_flows,
+                target_flows,
+                f"{percent:5.1f}%",
+            ),
+            metric_line("completed", stats.completed_flows, flow_total_for_bar),
+            metric_line("active", stats.active_flows, flow_total_for_bar),
+            metric_line("l4 tcp", stats.tcp_conversations, l4_total_for_bar),
+            metric_line("l4 udp", stats.udp_conversations, l4_total_for_bar),
+            metric_line("flow ipv6", stats.ipv6_flows, ip_flow_total_for_bar),
+            metric_line("flow ipv4", stats.ipv4_flows, ip_flow_total_for_bar),
+            metric_line("pkt ipv6", ip_stats.ipv6_packets, packet_total_for_bar),
+            metric_line("pkt ipv4", ip_stats.ipv4_packets, packet_total_for_bar),
+            f"udp443 conv {ip_stats.udp_443_conversations}",
+            f"pcap size   {_format_bytes(size)}",
+            f"write rate  {_format_bytes(int(rate))}/s",
+        ]
+    )
+
+
 def _capture_windows_ipv6_flow_segment(
     *,
     dumpcap: Path,
@@ -743,71 +839,102 @@ def _capture_windows_ipv6_flow_segment(
         "but do not block plain website rotation. Press Ctrl+C to stop early.",
         flush=True,
     )
+    status_message = "capturing; open/use only the intended browser workload"
     try:
-        time.sleep(1)
-        if process.poll() is not None:
-            dumpcap_log.close()
-            stderr = dumpcap_log_path.read_text(errors="replace")
-            raise LabError(f"dumpcap exited before traffic started: {stderr.strip()}")
-        while True:
-            time.sleep(progress_interval_seconds)
-            now = time.monotonic()
-            size = pcap_path.stat().st_size if pcap_path.is_file() else 0
-            interval = max(now - previous_time, 0.001)
-            rate = max(size - previous_size, 0) / interval
-            stats = tracker.poll()
-            ip_stats = ip_tracker.poll()
-            phase = "DRAINING" if stats.total_flows >= target_flows else "CAPTURING"
-            percent = min(stats.total_flows / target_flows * 100, 100.0)
-            print(
-                f"[segment {segment_index}/{segment_count} {phase} "
-                f"{datetime.now(UTC).strftime('%H:%M:%S')}Z] "
-                f"flows {stats.total_flows} / {target_flows} ({percent:5.1f}%), "
-                f"active {stats.active_flows}, completed {stats.completed_flows}, "
-                f"l4tcp {stats.tcp_conversations}, l4udp {stats.udp_conversations}, "
-                f"flow6 {stats.ipv6_flows}, flow4 {stats.ipv4_flows}, "
-                f"ip6 {ip_stats.ipv6_packets}, ip4 {ip_stats.ipv4_packets}, "
-                f"udp443-conv {ip_stats.udp_443_conversations}, "
-                f"pcap {_format_bytes(size)}, rate {_format_bytes(int(rate))}/s",
-                flush=True,
-            )
-            if process.poll() is not None:
-                dumpcap_log.close()
-                stderr = dumpcap_log_path.read_text(errors="replace")
-                raise LabError(f"dumpcap stopped unexpectedly: {stderr.strip()}")
-            if stats.total_flows >= target_flows:
-                if target_reached_at is None:
-                    target_reached_at = now
-                    flow_timeout_warning_at = now + finish_timeout_seconds
-                    print(
-                        f"Segment {segment_index}/{segment_count} flow target reached. "
-                        "Do not start new browsing work; waiting for traffic idle.",
-                        flush=True,
+        with TerminalDashboard() as dashboard:
+            try:
+                time.sleep(1)
+                if process.poll() is not None:
+                    dumpcap_log.close()
+                    stderr = dumpcap_log_path.read_text(errors="replace")
+                    raise LabError(
+                        f"dumpcap exited before traffic started: {stderr.strip()}"
                     )
-                if rate <= idle_bytes_per_second:
-                    quiet_started_at = quiet_started_at or now
-                else:
-                    quiet_started_at = None
-                if (
-                    quiet_started_at is not None
-                    and now - quiet_started_at >= idle_seconds
-                ):
-                    stop_reason = "target_flows_reached_and_traffic_idle"
-                    break
-                if (
-                    flow_timeout_warning_at is not None
-                    and now >= flow_timeout_warning_at
-                ):
-                    print(
-                        f"warning: still waiting for traffic idle; active TCP flows "
-                        f"currently {stats.active_flows}.",
-                        flush=True,
+                while True:
+                    time.sleep(progress_interval_seconds)
+                    now = time.monotonic()
+                    size = pcap_path.stat().st_size if pcap_path.is_file() else 0
+                    interval = max(now - previous_time, 0.001)
+                    rate = max(size - previous_size, 0) / interval
+                    stats = tracker.poll()
+                    ip_stats = ip_tracker.poll()
+                    phase = (
+                        "DRAINING"
+                        if stats.total_flows >= target_flows
+                        else "CAPTURING"
                     )
-                    flow_timeout_warning_at = now + finish_timeout_seconds
-            previous_time = now
-            previous_size = size
-    except KeyboardInterrupt:
-        print("\nStopping capture on user request...", flush=True)
+                    dashboard.render(
+                        _render_windows_capture_progress(
+                            segment_index=segment_index,
+                            segment_count=segment_count,
+                            phase=phase,
+                            profile=profile,
+                            pcap_path=pcap_path,
+                            stats=stats,
+                            ip_stats=ip_stats,
+                            target_flows=target_flows,
+                            size=size,
+                            rate=rate,
+                            status=status_message,
+                        )
+                    )
+                    if process.poll() is not None:
+                        dumpcap_log.close()
+                        stderr = dumpcap_log_path.read_text(errors="replace")
+                        raise LabError(f"dumpcap stopped unexpectedly: {stderr.strip()}")
+                    if stats.total_flows >= target_flows:
+                        if target_reached_at is None:
+                            target_reached_at = now
+                            flow_timeout_warning_at = now + finish_timeout_seconds
+                            status_message = (
+                                "target reached; stop new browsing and wait for idle"
+                            )
+                        if rate <= idle_bytes_per_second:
+                            quiet_started_at = quiet_started_at or now
+                        else:
+                            quiet_started_at = None
+                        if (
+                            quiet_started_at is not None
+                            and now - quiet_started_at >= idle_seconds
+                        ):
+                            stop_reason = "target_flows_reached_and_traffic_idle"
+                            break
+                        if (
+                            flow_timeout_warning_at is not None
+                            and now >= flow_timeout_warning_at
+                        ):
+                            status_message = (
+                                "still waiting for traffic idle; active TCP flows "
+                                f"{stats.active_flows}"
+                            )
+                            flow_timeout_warning_at = now + finish_timeout_seconds
+                    previous_time = now
+                    previous_size = size
+            except KeyboardInterrupt:
+                stop_reason = "interrupted"
+                size = pcap_path.stat().st_size if pcap_path.is_file() else 0
+                stats = tracker.poll()
+                ip_stats = ip_tracker.poll()
+                phase = (
+                    "DRAINING" if stats.total_flows >= target_flows else "CAPTURING"
+                )
+                dashboard.render(
+                    _render_windows_capture_progress(
+                        segment_index=segment_index,
+                        segment_count=segment_count,
+                        phase=phase,
+                        profile=profile,
+                        pcap_path=pcap_path,
+                        stats=stats,
+                        ip_stats=ip_stats,
+                        target_flows=target_flows,
+                        size=size,
+                        rate=0,
+                        status=(
+                            "Ctrl+C received; stopping dumpcap and writing metadata..."
+                        ),
+                    )
+                )
     finally:
         if process.poll() is None:
             process.terminate()
