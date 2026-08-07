@@ -113,6 +113,29 @@ class ProtocolCase(StrictModel):
             )
             if not expected:
                 raise ValueError("class 6 must be VMess + XHTTP + H2 + TLS on Xray")
+        if self.dataset_class == 7:
+            expected = (
+                self.protocol == "vless"
+                and self.client == "xray"
+                and self.server == "xray"
+                and self.outer_transport == "tcp"
+                and self.wrapper == "raw"
+                and self.security == "reality"
+                and self.flow == "xtls-rprx-vision"
+            )
+            if not expected:
+                raise ValueError("class 7 must be VLESS + RAW + REALITY + Vision on Xray")
+        if self.dataset_class == 8:
+            expected = (
+                self.protocol == "vless"
+                and self.client == "xray"
+                and self.server == "xray"
+                and self.outer_transport == "tcp"
+                and self.wrapper == "grpc"
+                and self.security == "tls"
+            )
+            if not expected:
+                raise ValueError("class 8 must be VLESS + gRPC + TLS on Xray")
         return self
 
 

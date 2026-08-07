@@ -15,6 +15,8 @@ def test_accepts_complete_target_matrix() -> None:
     assert [case.id for case in matrix.cases if case.enabled] == [
         "class-05-vmess-websocket-tls",
         "class-06-vmess-xhttp-h2-tls",
+        "class-07-vless-raw-reality-vision",
+        "class-08-vless-grpc-tls",
     ]
 
 
@@ -29,6 +31,20 @@ def test_rejects_mislabeled_class_06() -> None:
     document = _matrix_document()
     document["cases"][5]["obfs_mode"] = "h3"  # type: ignore[index]
     with pytest.raises(ValidationError, match="class 6 must be"):
+        ProtocolMatrix.model_validate(document)
+
+
+def test_rejects_mislabeled_class_07() -> None:
+    document = _matrix_document()
+    document["cases"][6]["security"] = "tls"  # type: ignore[index]
+    with pytest.raises(ValidationError, match="class 7 must be"):
+        ProtocolMatrix.model_validate(document)
+
+
+def test_rejects_mislabeled_class_08() -> None:
+    document = _matrix_document()
+    document["cases"][7]["wrapper"] = "raw"  # type: ignore[index]
+    with pytest.raises(ValidationError, match="class 8 must be"):
         ProtocolMatrix.model_validate(document)
 
 

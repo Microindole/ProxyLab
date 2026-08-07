@@ -33,6 +33,7 @@ from proxy_traffic_lab.providers.xray import (
     client_logs,
     client_status,
     create_vless_tls_material,
+    ensure_reality_material,
     load_vless_tls_material,
     lock_official_image,
     render_xray_case_client,
@@ -93,6 +94,8 @@ def build_parser() -> argparse.ArgumentParser:
             "vless-tcp-tls",
             "class-05-vmess-websocket-tls",
             "class-06-vmess-xhttp-h2-tls",
+            "class-07-vless-raw-reality-vision",
+            "class-08-vless-grpc-tls",
         ],
         help="protocol case to render (default keeps the original smoke case)",
     )
@@ -327,6 +330,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "xray" and args.xray_command == "render":
             root = Path(__file__).resolve().parents[3]
             material = load_vless_tls_material(root / "secrets" / "xray")
+            if args.case == "class-07-vless-raw-reality-vision":
+                material = ensure_reality_material(root / "secrets" / "xray", material)
             generated = root / "secrets" / "generated"
             write_private_json(
                 generated / "server.json",

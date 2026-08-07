@@ -79,7 +79,7 @@ cases:
 
   - id: class-07-vless-raw-reality-vision
     dataset_class: 7
-    enabled: false
+    enabled: true
     protocol: vless
     client: xray
     server: xray
@@ -91,7 +91,7 @@ cases:
 
   - id: class-08-vless-grpc-tls
     dataset_class: 8
-    enabled: false
+    enabled: true
     protocol: vless
     client: xray
     server: xray

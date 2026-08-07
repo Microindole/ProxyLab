@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import socket
 import uuid
 from dataclasses import dataclass
@@ -33,6 +34,11 @@ class VlessTlsMaterial:
     certificate_sha256: str
     certificate_path: Path
     private_key_path: Path
+    reality_private_key: str | None = None
+    reality_public_key: str | None = None
+    reality_short_id: str | None = None
+    reality_server_name: str = "www.microsoft.com"
+    reality_dest: str = "www.microsoft.com:443"
 
 
 def create_vless_tls_material(
@@ -92,6 +98,9 @@ def create_vless_tls_material(
                 "server_name": server_name,
                 "certificate_sha256": fingerprint,
                 "websocket_path": f"/assets/{uuid.UUID(client_id).hex[:16]}",
+                "reality_short_id": secrets.token_hex(8),
+                "reality_server_name": "www.microsoft.com",
+                "reality_dest": "www.microsoft.com:443",
             },
             indent=2,
         )
@@ -123,13 +132,88 @@ def load_vless_tls_material(secrets_dir: Path) -> VlessTlsMaterial:
         uuid.UUID(identity["client_id"])
     except (ValueError, TypeError) as exc:
         raise ConfigurationError("invalid VLESS client UUID") from exc
+    if "reality_short_id" not in identity:
+        identity["reality_short_id"] = secrets.token_hex(8)
+        identity.setdefault("reality_server_name", "www.microsoft.com")
+        identity.setdefault("reality_dest", "www.microsoft.com:443")
+        identity_path.write_text(
+            json.dumps(identity, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.chmod(identity_path, 0o600)
     return VlessTlsMaterial(
         client_id=identity["client_id"],
         server_name=identity["server_name"],
         certificate_sha256=identity["certificate_sha256"],
         certificate_path=secrets_dir / "server.crt",
         private_key_path=secrets_dir / "server.key",
+        reality_private_key=identity.get("reality_private_key"),
+        reality_public_key=identity.get("reality_public_key"),
+        reality_short_id=identity.get("reality_short_id"),
+        reality_server_name=identity.get("reality_server_name", "www.microsoft.com"),
+        reality_dest=identity.get("reality_dest", "www.microsoft.com:443"),
     )
+
+
+def ensure_reality_material(
+    secrets_dir: Path,
+    material: VlessTlsMaterial,
+) -> VlessTlsMaterial:
+    """Ensure Xray REALITY x25519 keys exist in identity.json."""
+    if material.reality_private_key and material.reality_public_key:
+        return material
+
+    identity_path = secrets_dir / "identity.json"
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigurationError(f"cannot update {identity_path}: {exc}") from exc
+
+    key_pair = _generate_reality_key_pair()
+    identity["reality_private_key"] = key_pair["private_key"]
+    identity["reality_public_key"] = key_pair["public_key"]
+    identity.setdefault("reality_short_id", material.reality_short_id or secrets.token_hex(8))
+    identity.setdefault("reality_server_name", material.reality_server_name)
+    identity.setdefault("reality_dest", material.reality_dest)
+    identity_path.write_text(
+        json.dumps(identity, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(identity_path, 0o600)
+    return VlessTlsMaterial(
+        client_id=material.client_id,
+        server_name=material.server_name,
+        certificate_sha256=material.certificate_sha256,
+        certificate_path=material.certificate_path,
+        private_key_path=material.private_key_path,
+        reality_private_key=identity["reality_private_key"],
+        reality_public_key=identity["reality_public_key"],
+        reality_short_id=identity["reality_short_id"],
+        reality_server_name=identity["reality_server_name"],
+        reality_dest=identity["reality_dest"],
+    )
+
+
+def _generate_reality_key_pair() -> dict[str, str]:
+    result = run_command(
+        ["docker", "run", "--rm", XRAY_OFFICIAL_IMAGE_TAG, "x25519"],
+        timeout_seconds=30,
+    )
+    if result.returncode != 0:
+        raise ConfigurationError(
+            "cannot generate Xray REALITY x25519 key pair: " + result.stderr
+        )
+    private_key: str | None = None
+    public_key: str | None = None
+    for line in result.stdout.splitlines():
+        lowered = line.lower()
+        if "private" in lowered and ":" in line:
+            private_key = line.split(":", 1)[1].strip()
+        if "public" in lowered and ":" in line:
+            public_key = line.split(":", 1)[1].strip()
+    if not private_key or not public_key:
+        raise ConfigurationError("cannot parse Xray x25519 key output")
+    return {"private_key": private_key, "public_key": public_key}
 
 
 def render_vless_tls_server(
@@ -247,6 +331,211 @@ def render_vless_tls_client(
                     "tlsSettings": {
                         "serverName": material.server_name,
                         "fingerprint": "chrome",
+                        "pinnedPeerCertSha256": material.certificate_sha256,
+                    },
+                },
+            },
+            {"tag": "block", "protocol": "blackhole"},
+        ],
+    }
+
+
+def render_vless_reality_vision_server(
+    material: VlessTlsMaterial,
+    *,
+    port: int,
+) -> dict[str, Any]:
+    """Render class 7 using Xray's VLESS RAW, REALITY and Vision flow."""
+    _validate_port(port)
+    private_key, _, short_id = _reality_values(material)
+    return {
+        "log": {"loglevel": "warning", "access": "none"},
+        "inbounds": [
+            {
+                "tag": "class-07-vless-raw-reality-vision-in",
+                "listen": "0.0.0.0",
+                "port": port,
+                "protocol": "vless",
+                "settings": {
+                    "clients": [
+                        {
+                            "id": material.client_id,
+                            "flow": "xtls-rprx-vision",
+                            "email": "class-07-collector",
+                        }
+                    ],
+                    "decryption": "none",
+                },
+                "streamSettings": {
+                    "method": "raw",
+                    "security": "reality",
+                    "realitySettings": {
+                        "show": False,
+                        "dest": material.reality_dest,
+                        "xver": 0,
+                        "serverNames": [material.reality_server_name],
+                        "privateKey": private_key,
+                        "shortIds": [short_id],
+                    },
+                },
+            }
+        ],
+        "outbounds": [
+            {"tag": "direct", "protocol": "freedom"},
+            {"tag": "block", "protocol": "blackhole"},
+        ],
+        "routing": _server_routing(),
+    }
+
+
+def render_vless_reality_vision_client(
+    material: VlessTlsMaterial,
+    *,
+    server_address: str,
+    server_port: int,
+    socks_port: int = 10808,
+) -> dict[str, Any]:
+    _validate_port(server_port)
+    _validate_port(socks_port)
+    normalized_server_address = _normalize_server_address(server_address)
+    _, public_key, short_id = _reality_values(material)
+    return {
+        "log": {"loglevel": "warning", "access": "none"},
+        "inbounds": [
+            {
+                "tag": "socks-in",
+                "listen": "127.0.0.1",
+                "port": socks_port,
+                "protocol": "socks",
+                "settings": {"udp": False},
+            }
+        ],
+        "outbounds": [
+            {
+                "tag": "proxy",
+                "protocol": "vless",
+                "settings": {
+                    "address": normalized_server_address,
+                    "port": server_port,
+                    "id": material.client_id,
+                    "encryption": "none",
+                    "flow": "xtls-rprx-vision",
+                },
+                "streamSettings": {
+                    "method": "raw",
+                    "security": "reality",
+                    "realitySettings": {
+                        "serverName": material.reality_server_name,
+                        "fingerprint": "chrome",
+                        "publicKey": public_key,
+                        "shortId": short_id,
+                        "spiderX": "/",
+                    },
+                },
+            },
+            {"tag": "block", "protocol": "blackhole"},
+        ],
+    }
+
+
+def render_vless_grpc_tls_server(
+    material: VlessTlsMaterial,
+    *,
+    port: int,
+    certificate_container_path: str = "/run/secrets/xray/server.crt",
+    private_key_container_path: str = "/run/secrets/xray/server.key",
+) -> dict[str, Any]:
+    """Render class 8 using Xray's VLESS, gRPC and TLS implementations."""
+    _validate_port(port)
+    service_name = _grpc_service_name(material.client_id)
+    return {
+        "log": {"loglevel": "warning", "access": "none"},
+        "inbounds": [
+            {
+                "tag": "class-08-vless-grpc-tls-in",
+                "listen": "0.0.0.0",
+                "port": port,
+                "protocol": "vless",
+                "settings": {
+                    "clients": [
+                        {
+                            "id": material.client_id,
+                            "email": "class-08-collector",
+                        }
+                    ],
+                    "decryption": "none",
+                },
+                "streamSettings": {
+                    "method": "grpc",
+                    "security": "tls",
+                    "grpcSettings": {
+                        "serviceName": service_name,
+                        "multiMode": False,
+                    },
+                    "tlsSettings": {
+                        "rejectUnknownSni": True,
+                        "minVersion": "1.3",
+                        "alpn": ["h2"],
+                        "certificates": [
+                            {
+                                "certificateFile": certificate_container_path,
+                                "keyFile": private_key_container_path,
+                            }
+                        ],
+                    },
+                },
+            }
+        ],
+        "outbounds": [
+            {"tag": "direct", "protocol": "freedom"},
+            {"tag": "block", "protocol": "blackhole"},
+        ],
+        "routing": _server_routing(),
+    }
+
+
+def render_vless_grpc_tls_client(
+    material: VlessTlsMaterial,
+    *,
+    server_address: str,
+    server_port: int,
+    socks_port: int = 10808,
+) -> dict[str, Any]:
+    _validate_port(server_port)
+    _validate_port(socks_port)
+    normalized_server_address = _normalize_server_address(server_address)
+    return {
+        "log": {"loglevel": "warning", "access": "none"},
+        "inbounds": [
+            {
+                "tag": "socks-in",
+                "listen": "127.0.0.1",
+                "port": socks_port,
+                "protocol": "socks",
+                "settings": {"udp": False},
+            }
+        ],
+        "outbounds": [
+            {
+                "tag": "proxy",
+                "protocol": "vless",
+                "settings": {
+                    "address": normalized_server_address,
+                    "port": server_port,
+                    "id": material.client_id,
+                    "encryption": "none",
+                },
+                "streamSettings": {
+                    "method": "grpc",
+                    "security": "tls",
+                    "grpcSettings": {
+                        "serviceName": _grpc_service_name(material.client_id),
+                        "multiMode": False,
+                    },
+                    "tlsSettings": {
+                        "serverName": material.server_name,
+                        "fingerprint": "chrome",
+                        "alpn": ["h2"],
                         "pinnedPeerCertSha256": material.certificate_sha256,
                     },
                 },
@@ -482,6 +771,10 @@ def render_xray_case_server(
         return render_vmess_websocket_tls_server(material, port=port)
     if case_id == "class-06-vmess-xhttp-h2-tls":
         return render_vmess_xhttp_h2_tls_server(material, port=port)
+    if case_id == "class-07-vless-raw-reality-vision":
+        return render_vless_reality_vision_server(material, port=port)
+    if case_id == "class-08-vless-grpc-tls":
+        return render_vless_grpc_tls_server(material, port=port)
     raise ConfigurationError(f"Xray case is not implemented yet: {case_id}")
 
 
@@ -509,6 +802,20 @@ def render_xray_case_client(
         )
     if case_id == "class-06-vmess-xhttp-h2-tls":
         return render_vmess_xhttp_h2_tls_client(
+            material,
+            server_address=server_address,
+            server_port=server_port,
+            socks_port=socks_port,
+        )
+    if case_id == "class-07-vless-raw-reality-vision":
+        return render_vless_reality_vision_client(
+            material,
+            server_address=server_address,
+            server_port=server_port,
+            socks_port=socks_port,
+        )
+    if case_id == "class-08-vless-grpc-tls":
+        return render_vless_grpc_tls_client(
             material,
             server_address=server_address,
             server_port=server_port,
@@ -1049,6 +1356,25 @@ def _xhttp_path(client_id: str) -> str:
     except (ValueError, TypeError) as exc:
         raise ConfigurationError("invalid VMess client UUID") from exc
     return f"/xhttp/{identifier.hex[:16]}"
+
+
+def _grpc_service_name(client_id: str) -> str:
+    try:
+        identifier = uuid.UUID(client_id)
+    except (ValueError, TypeError) as exc:
+        raise ConfigurationError("invalid VLESS client UUID") from exc
+    return f"grpc{identifier.hex[:16]}"
+
+
+def _reality_values(material: VlessTlsMaterial) -> tuple[str, str, str]:
+    if not material.reality_private_key or not material.reality_public_key:
+        raise ConfigurationError(
+            "REALITY keys are missing; rerun `lab xray render --case class-07-vless-raw-reality-vision ...`"
+        )
+    short_id = material.reality_short_id or ""
+    if not re.fullmatch(r"[0-9a-fA-F]{2,16}", short_id):
+        raise ConfigurationError("REALITY shortId must be 1-8 bytes encoded as hex")
+    return material.reality_private_key, material.reality_public_key, short_id.lower()
 
 
 def _server_routing() -> dict[str, Any]:

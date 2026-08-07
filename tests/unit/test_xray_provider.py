@@ -8,6 +8,11 @@ from proxy_traffic_lab.controller.errors import ConfigurationError
 from proxy_traffic_lab.providers.xray import (
     XRAY_OFFICIAL_IMAGE_TAG,
     VlessTlsMaterial,
+    ensure_reality_material,
+    render_vless_grpc_tls_client,
+    render_vless_grpc_tls_server,
+    render_vless_reality_vision_client,
+    render_vless_reality_vision_server,
     render_vless_tls_client,
     render_vless_tls_server,
     render_vmess_websocket_tls_client,
@@ -27,6 +32,9 @@ def _material() -> VlessTlsMaterial:
         certificate_sha256="a" * 64,
         certificate_path=Path("server.crt"),
         private_key_path=Path("server.key"),
+        reality_private_key="priv",
+        reality_public_key="pub",
+        reality_short_id="0123abcd",
     )
 
 
@@ -95,6 +103,102 @@ def test_class_06_client_matches_server_and_pins_certificate() -> None:
     assert outbound_stream["tlsSettings"]["alpn"] == ["h2"]
     assert outbound_stream["tlsSettings"]["pinnedPeerCertSha256"] == "a" * 64
     assert "allowInsecure" not in outbound_stream["tlsSettings"]
+
+
+def test_class_07_server_uses_vless_raw_reality_vision() -> None:
+    config = render_vless_reality_vision_server(_material(), port=24443)
+    inbound = config["inbounds"][0]
+    stream = inbound["streamSettings"]
+    client = inbound["settings"]["clients"][0]
+    assert inbound["protocol"] == "vless"
+    assert inbound["settings"]["decryption"] == "none"
+    assert client["id"] == _material().client_id
+    assert client["flow"] == "xtls-rprx-vision"
+    assert stream["method"] == "raw"
+    assert stream["security"] == "reality"
+    assert stream["realitySettings"]["privateKey"] == "priv"
+    assert stream["realitySettings"]["shortIds"] == ["0123abcd"]
+    assert stream["realitySettings"]["serverNames"] == ["www.microsoft.com"]
+
+
+def test_class_07_client_matches_reality_server() -> None:
+    client = render_vless_reality_vision_client(
+        _material(), server_address="203.0.113.10", server_port=24443
+    )
+    outbound = client["outbounds"][0]
+    stream = outbound["streamSettings"]
+    assert outbound["protocol"] == "vless"
+    assert outbound["settings"]["flow"] == "xtls-rprx-vision"
+    assert stream["method"] == "raw"
+    assert stream["security"] == "reality"
+    assert stream["realitySettings"]["publicKey"] == "pub"
+    assert stream["realitySettings"]["shortId"] == "0123abcd"
+    assert stream["realitySettings"]["serverName"] == "www.microsoft.com"
+
+
+def test_class_08_server_uses_vless_grpc_tls() -> None:
+    config = render_vless_grpc_tls_server(_material(), port=24443)
+    inbound = config["inbounds"][0]
+    stream = inbound["streamSettings"]
+    assert inbound["protocol"] == "vless"
+    assert inbound["settings"]["decryption"] == "none"
+    assert stream["method"] == "grpc"
+    assert stream["security"] == "tls"
+    assert stream["grpcSettings"]["serviceName"].startswith("grpc")
+    assert stream["tlsSettings"]["alpn"] == ["h2"]
+
+
+def test_class_08_client_matches_server_and_pins_certificate() -> None:
+    server = render_vless_grpc_tls_server(_material(), port=24443)
+    client = render_vless_grpc_tls_client(
+        _material(), server_address="203.0.113.10", server_port=24443
+    )
+    inbound_stream = server["inbounds"][0]["streamSettings"]
+    outbound_stream = client["outbounds"][0]["streamSettings"]
+    assert outbound_stream["grpcSettings"] == inbound_stream["grpcSettings"]
+    assert outbound_stream["tlsSettings"]["alpn"] == ["h2"]
+    assert outbound_stream["tlsSettings"]["pinnedPeerCertSha256"] == "a" * 64
+    assert "allowInsecure" not in outbound_stream["tlsSettings"]
+
+
+def test_ensure_reality_material_persists_generated_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secrets_dir = tmp_path
+    identity = {
+        "client_id": _material().client_id,
+        "server_name": "lab.invalid",
+        "certificate_sha256": "a" * 64,
+        "reality_short_id": "abcdef12",
+    }
+    (secrets_dir / "identity.json").write_text(json.dumps(identity), encoding="utf-8")
+
+    def fake_run_command(*args: object, **kwargs: object) -> object:
+        class Result:
+            returncode = 0
+            stdout = "Private key: generated-private\nPublic key: generated-public\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(xray, "run_command", fake_run_command)
+    material = ensure_reality_material(
+        secrets_dir,
+        VlessTlsMaterial(
+            client_id=_material().client_id,
+            server_name="lab.invalid",
+            certificate_sha256="a" * 64,
+            certificate_path=secrets_dir / "server.crt",
+            private_key_path=secrets_dir / "server.key",
+            reality_short_id="abcdef12",
+        ),
+    )
+
+    persisted = json.loads((secrets_dir / "identity.json").read_text())
+    assert material.reality_private_key == "generated-private"
+    assert material.reality_public_key == "generated-public"
+    assert persisted["reality_private_key"] == "generated-private"
 
 
 def test_client_pins_certificate_without_allow_insecure() -> None:
