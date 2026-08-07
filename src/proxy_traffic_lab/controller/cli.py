@@ -37,6 +37,7 @@ from proxy_traffic_lab.providers.xray import (
     validate_server_config_with_container,
     write_private_json,
 )
+from proxy_traffic_lab.providers.native_configs import write_native_case
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,6 +87,8 @@ def build_parser() -> argparse.ArgumentParser:
             "class-06-vmess-xhttp-h2-tls",
             "class-07-vless-raw-reality-vision",
             "class-08-vless-grpc-tls",
+            "class-09-trojan-raw-tls",
+            "class-10-trojan-websocket-tls",
         ],
         help="protocol case to render (default keeps the original smoke case)",
     )
@@ -95,6 +98,27 @@ def build_parser() -> argparse.ArgumentParser:
     xray_subcommands.add_parser(
         "validate", help="validate generated server config in the locked image"
     )
+
+    native = subcommands.add_parser(
+        "native", help="render configs for non-Xray protocol implementations"
+    )
+    native_subcommands = native.add_subparsers(dest="native_command", required=True)
+    native_render = native_subcommands.add_parser(
+        "render", help="render Shadowsocks/SSR configs for existing implementations"
+    )
+    native_render.add_argument(
+        "--case",
+        required=True,
+        choices=[
+            "class-01-shadowsocks-2022-tcp",
+            "class-02-shadowsocks-2022-udp",
+            "class-03-ssr-auth-aes128-md5",
+            "class-04-ssr-auth-aes128-sha1",
+        ],
+    )
+    native_render.add_argument("--server-address", required=True)
+    native_render.add_argument("--server-port", type=int, required=True)
+    native_render.add_argument("--socks-port", type=int, default=10808)
 
     server = subcommands.add_parser("server", help="proxy server lifecycle")
     server_subcommands = server.add_subparsers(dest="server_command", required=True)
@@ -290,6 +314,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             root = Path(__file__).resolve().parents[3]
             detail = validate_server_config_with_container(root)
             print(detail)
+            return 0
+
+        if args.command == "native" and args.native_command == "render":
+            root = Path(__file__).resolve().parents[3]
+            material = load_vless_tls_material(root / "secrets" / "xray")
+            server_path, client_path = write_native_case(
+                root / "secrets" / "generated",
+                args.case,
+                server_address=args.server_address,
+                server_port=args.server_port,
+                socks_port=args.socks_port,
+                seed=material.client_id,
+            )
+            print(
+                "Rendered ignored native configs under secrets/generated; "
+                f"case={args.case}; server={server_path.name}; client={client_path.name}"
+            )
             return 0
 
         if args.command == "server" and args.server_command == "start":

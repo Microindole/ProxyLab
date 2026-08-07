@@ -13,6 +13,10 @@ from proxy_traffic_lab.providers.xray import (
     render_vless_grpc_tls_server,
     render_vless_reality_vision_client,
     render_vless_reality_vision_server,
+    render_trojan_raw_tls_client,
+    render_trojan_raw_tls_server,
+    render_trojan_websocket_tls_client,
+    render_trojan_websocket_tls_server,
     render_vless_tls_client,
     render_vless_tls_server,
     render_vmess_websocket_tls_client,
@@ -159,6 +163,57 @@ def test_class_08_client_matches_server_and_pins_certificate() -> None:
     assert outbound_stream["tlsSettings"]["alpn"] == ["h2"]
     assert outbound_stream["tlsSettings"]["pinnedPeerCertSha256"] == "a" * 64
     assert "allowInsecure" not in outbound_stream["tlsSettings"]
+
+
+def test_class_09_server_uses_trojan_raw_tls() -> None:
+    config = render_trojan_raw_tls_server(_material(), port=24443)
+    inbound = config["inbounds"][0]
+    stream = inbound["streamSettings"]
+    assert inbound["protocol"] == "trojan"
+    assert inbound["settings"]["clients"][0]["password"]
+    assert stream["method"] == "raw"
+    assert stream["security"] == "tls"
+
+
+def test_class_09_client_matches_trojan_raw_tls_server() -> None:
+    server = render_trojan_raw_tls_server(_material(), port=24443)
+    client = render_trojan_raw_tls_client(
+        _material(), server_address="203.0.113.10", server_port=24443
+    )
+    assert client["outbounds"][0]["protocol"] == "trojan"
+    assert (
+        client["outbounds"][0]["settings"]["servers"][0]["password"]
+        == server["inbounds"][0]["settings"]["clients"][0]["password"]
+    )
+    assert client["outbounds"][0]["streamSettings"]["method"] == "raw"
+    assert client["outbounds"][0]["streamSettings"]["security"] == "tls"
+
+
+def test_class_10_server_uses_trojan_websocket_tls() -> None:
+    config = render_trojan_websocket_tls_server(_material(), port=24443)
+    inbound = config["inbounds"][0]
+    stream = inbound["streamSettings"]
+    assert inbound["protocol"] == "trojan"
+    assert stream["method"] == "websocket"
+    assert stream["security"] == "tls"
+    assert stream["wsSettings"]["path"].startswith("/assets/")
+    assert stream["tlsSettings"]["alpn"] == ["http/1.1"]
+
+
+def test_class_10_client_matches_trojan_websocket_tls_server() -> None:
+    server = render_trojan_websocket_tls_server(_material(), port=24443)
+    client = render_trojan_websocket_tls_client(
+        _material(), server_address="203.0.113.10", server_port=24443
+    )
+    outbound = client["outbounds"][0]
+    assert outbound["protocol"] == "trojan"
+    assert (
+        outbound["settings"]["servers"][0]["password"]
+        == server["inbounds"][0]["settings"]["clients"][0]["password"]
+    )
+    assert outbound["streamSettings"]["wsSettings"] == server["inbounds"][0][
+        "streamSettings"
+    ]["wsSettings"]
 
 
 def test_ensure_reality_material_persists_generated_keys(

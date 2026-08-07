@@ -3,7 +3,7 @@ schema_version: 1
 cases:
   - id: class-01-shadowsocks-2022-tcp
     dataset_class: 1
-    enabled: false
+    enabled: true
     protocol: shadowsocks
     client: sing-box
     server: shadowsocks-rust
@@ -15,7 +15,7 @@ cases:
 
   - id: class-02-shadowsocks-2022-udp
     dataset_class: 2
-    enabled: false
+    enabled: true
     protocol: shadowsocks
     client: sing-box
     server: shadowsocks-rust
@@ -27,7 +27,7 @@ cases:
 
   - id: class-03-ssr-auth-aes128-md5
     dataset_class: 3
-    enabled: false
+    enabled: true
     protocol: shadowsocksr
     client: shadowsocksr-libev
     server: shadowsocksr-libev
@@ -41,7 +41,7 @@ cases:
 
   - id: class-04-ssr-auth-aes128-sha1
     dataset_class: 4
-    enabled: false
+    enabled: true
     protocol: shadowsocksr
     client: shadowsocksr-libev
     server: shadowsocksr-libev
@@ -102,7 +102,7 @@ cases:
 
   - id: class-09-trojan-raw-tls
     dataset_class: 9
-    enabled: false
+    enabled: true
     protocol: trojan
     client: xray
     server: xray
@@ -113,7 +113,7 @@ cases:
 
   - id: class-10-trojan-websocket-tls
     dataset_class: 10
-    enabled: false
+    enabled: true
     protocol: trojan
     client: xray
     server: xray

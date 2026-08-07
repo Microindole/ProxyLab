@@ -13,10 +13,16 @@ def test_accepts_complete_target_matrix() -> None:
     matrix = ProtocolMatrix.model_validate(_matrix_document())
     assert [case.dataset_class for case in matrix.cases] == list(range(1, 13))
     assert [case.id for case in matrix.cases if case.enabled] == [
+        "class-01-shadowsocks-2022-tcp",
+        "class-02-shadowsocks-2022-udp",
+        "class-03-ssr-auth-aes128-md5",
+        "class-04-ssr-auth-aes128-sha1",
         "class-05-vmess-websocket-tls",
         "class-06-vmess-xhttp-h2-tls",
         "class-07-vless-raw-reality-vision",
         "class-08-vless-grpc-tls",
+        "class-09-trojan-raw-tls",
+        "class-10-trojan-websocket-tls",
     ]
 
 

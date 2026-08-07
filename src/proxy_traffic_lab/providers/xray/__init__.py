@@ -17,16 +17,6 @@ from proxy_traffic_lab.providers.xray.runtime import (
     load_image_lock,
     load_vless_tls_material,
     lock_official_image,
-    render_vless_tls_client,
-    render_vless_tls_server,
-    render_vless_grpc_tls_client,
-    render_vless_grpc_tls_server,
-    render_vless_reality_vision_client,
-    render_vless_reality_vision_server,
-    render_vmess_websocket_tls_client,
-    render_vmess_websocket_tls_server,
-    render_vmess_xhttp_h2_tls_client,
-    render_vmess_xhttp_h2_tls_server,
     render_xray_case_client,
     render_xray_case_server,
     server_logs,
@@ -39,6 +29,26 @@ from proxy_traffic_lab.providers.xray.runtime import (
     validate_official_image_digest,
     validate_server_config_with_container,
     write_private_json,
+)
+from proxy_traffic_lab.providers.xray.cases_trojan import (
+    render_trojan_raw_tls_client,
+    render_trojan_raw_tls_server,
+    render_trojan_websocket_tls_client,
+    render_trojan_websocket_tls_server,
+)
+from proxy_traffic_lab.providers.xray.cases_vless import (
+    render_vless_grpc_tls_client,
+    render_vless_grpc_tls_server,
+    render_vless_reality_vision_client,
+    render_vless_reality_vision_server,
+    render_vless_tls_client,
+    render_vless_tls_server,
+)
+from proxy_traffic_lab.providers.xray.cases_vmess import (
+    render_vmess_websocket_tls_client,
+    render_vmess_websocket_tls_server,
+    render_vmess_xhttp_h2_tls_client,
+    render_vmess_xhttp_h2_tls_server,
 )
 
 __all__ = [
@@ -60,6 +70,10 @@ __all__ = [
     "render_vless_grpc_tls_server",
     "render_vless_reality_vision_client",
     "render_vless_reality_vision_server",
+    "render_trojan_raw_tls_client",
+    "render_trojan_raw_tls_server",
+    "render_trojan_websocket_tls_client",
+    "render_trojan_websocket_tls_server",
     "render_vmess_websocket_tls_client",
     "render_vmess_websocket_tls_server",
     "render_vmess_xhttp_h2_tls_client",

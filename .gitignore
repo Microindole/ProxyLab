@@ -18,4 +18,8 @@ dataset/reports/*.html
 *.key
 *.pem
 !*.example.pem
+.idea/
+.vscode/
+.claude/
+.cursor/
 

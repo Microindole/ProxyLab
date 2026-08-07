@@ -216,547 +216,6 @@ def _generate_reality_key_pair() -> dict[str, str]:
     return {"private_key": private_key, "public_key": public_key}
 
 
-def render_vless_tls_server(
-    material: VlessTlsMaterial,
-    *,
-    port: int,
-    certificate_container_path: str = "/run/secrets/xray/server.crt",
-    private_key_container_path: str = "/run/secrets/xray/server.key",
-) -> dict[str, Any]:
-    _validate_port(port)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "vless-tcp-tls-in",
-                "listen": "0.0.0.0",
-                "port": port,
-                "protocol": "vless",
-                "settings": {
-                    "clients": [
-                        {
-                            "id": material.client_id,
-                            "email": "mvp-collector",
-                        }
-                    ],
-                    "decryption": "none",
-                },
-                "streamSettings": {
-                    "method": "raw",
-                    "security": "tls",
-                    "tlsSettings": {
-                        "rejectUnknownSni": True,
-                        "minVersion": "1.3",
-                        "certificates": [
-                            {
-                                "certificateFile": certificate_container_path,
-                                "keyFile": private_key_container_path,
-                            }
-                        ],
-                    },
-                },
-            }
-        ],
-        "outbounds": [
-            {"tag": "direct", "protocol": "freedom"},
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-        "routing": {
-            "domainStrategy": "IPIfNonMatch",
-            "rules": [
-                {
-                    "type": "field",
-                    "ip": [
-                        "geoip:private",
-                        "100.64.0.0/10",
-                        "100.100.100.200/32",
-                        "169.254.0.0/16",
-                        "224.0.0.0/4",
-                        "240.0.0.0/4",
-                        "::1/128",
-                        "fe80::/10",
-                        "fc00::/7",
-                    ],
-                    "outboundTag": "block",
-                },
-                {
-                    "type": "field",
-                    "protocol": ["bittorrent"],
-                    "outboundTag": "block",
-                },
-            ],
-        },
-    }
-
-
-def render_vless_tls_client(
-    material: VlessTlsMaterial,
-    *,
-    server_address: str,
-    server_port: int,
-    socks_port: int = 10808,
-) -> dict[str, Any]:
-    _validate_port(server_port)
-    _validate_port(socks_port)
-    try:
-        normalized_server_address = ipaddress.ip_address(server_address).compressed
-    except ValueError as exc:
-        raise ConfigurationError(
-            "server_address must be the VPS IPv4 or IPv6 address; placeholders and hostnames are rejected"
-        ) from exc
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "socks-in",
-                "listen": "127.0.0.1",
-                "port": socks_port,
-                "protocol": "socks",
-                "settings": {"udp": False},
-            }
-        ],
-        "outbounds": [
-            {
-                "tag": "proxy",
-                "protocol": "vless",
-                "settings": {
-                    "address": normalized_server_address,
-                    "port": server_port,
-                    "id": material.client_id,
-                    "encryption": "none",
-                },
-                "streamSettings": {
-                    "method": "raw",
-                    "security": "tls",
-                    "tlsSettings": {
-                        "serverName": material.server_name,
-                        "fingerprint": "chrome",
-                        "pinnedPeerCertSha256": material.certificate_sha256,
-                    },
-                },
-            },
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-    }
-
-
-def render_vless_reality_vision_server(
-    material: VlessTlsMaterial,
-    *,
-    port: int,
-) -> dict[str, Any]:
-    """Render class 7 using Xray's VLESS RAW, REALITY and Vision flow."""
-    _validate_port(port)
-    private_key, _, short_id = _reality_values(material)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "class-07-vless-raw-reality-vision-in",
-                "listen": "0.0.0.0",
-                "port": port,
-                "protocol": "vless",
-                "settings": {
-                    "clients": [
-                        {
-                            "id": material.client_id,
-                            "flow": "xtls-rprx-vision",
-                            "email": "class-07-collector",
-                        }
-                    ],
-                    "decryption": "none",
-                },
-                "streamSettings": {
-                    "method": "raw",
-                    "security": "reality",
-                    "realitySettings": {
-                        "show": False,
-                        "dest": material.reality_dest,
-                        "xver": 0,
-                        "serverNames": [material.reality_server_name],
-                        "privateKey": private_key,
-                        "shortIds": [short_id],
-                    },
-                },
-            }
-        ],
-        "outbounds": [
-            {"tag": "direct", "protocol": "freedom"},
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-        "routing": _server_routing(),
-    }
-
-
-def render_vless_reality_vision_client(
-    material: VlessTlsMaterial,
-    *,
-    server_address: str,
-    server_port: int,
-    socks_port: int = 10808,
-) -> dict[str, Any]:
-    _validate_port(server_port)
-    _validate_port(socks_port)
-    normalized_server_address = _normalize_server_address(server_address)
-    _, public_key, short_id = _reality_values(material)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "socks-in",
-                "listen": "127.0.0.1",
-                "port": socks_port,
-                "protocol": "socks",
-                "settings": {"udp": False},
-            }
-        ],
-        "outbounds": [
-            {
-                "tag": "proxy",
-                "protocol": "vless",
-                "settings": {
-                    "address": normalized_server_address,
-                    "port": server_port,
-                    "id": material.client_id,
-                    "encryption": "none",
-                    "flow": "xtls-rprx-vision",
-                },
-                "streamSettings": {
-                    "method": "raw",
-                    "security": "reality",
-                    "realitySettings": {
-                        "serverName": material.reality_server_name,
-                        "fingerprint": "chrome",
-                        "publicKey": public_key,
-                        "shortId": short_id,
-                        "spiderX": "/",
-                    },
-                },
-            },
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-    }
-
-
-def render_vless_grpc_tls_server(
-    material: VlessTlsMaterial,
-    *,
-    port: int,
-    certificate_container_path: str = "/run/secrets/xray/server.crt",
-    private_key_container_path: str = "/run/secrets/xray/server.key",
-) -> dict[str, Any]:
-    """Render class 8 using Xray's VLESS, gRPC and TLS implementations."""
-    _validate_port(port)
-    service_name = _grpc_service_name(material.client_id)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "class-08-vless-grpc-tls-in",
-                "listen": "0.0.0.0",
-                "port": port,
-                "protocol": "vless",
-                "settings": {
-                    "clients": [
-                        {
-                            "id": material.client_id,
-                            "email": "class-08-collector",
-                        }
-                    ],
-                    "decryption": "none",
-                },
-                "streamSettings": {
-                    "method": "grpc",
-                    "security": "tls",
-                    "grpcSettings": {
-                        "serviceName": service_name,
-                        "multiMode": False,
-                    },
-                    "tlsSettings": {
-                        "rejectUnknownSni": True,
-                        "minVersion": "1.3",
-                        "alpn": ["h2"],
-                        "certificates": [
-                            {
-                                "certificateFile": certificate_container_path,
-                                "keyFile": private_key_container_path,
-                            }
-                        ],
-                    },
-                },
-            }
-        ],
-        "outbounds": [
-            {"tag": "direct", "protocol": "freedom"},
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-        "routing": _server_routing(),
-    }
-
-
-def render_vless_grpc_tls_client(
-    material: VlessTlsMaterial,
-    *,
-    server_address: str,
-    server_port: int,
-    socks_port: int = 10808,
-) -> dict[str, Any]:
-    _validate_port(server_port)
-    _validate_port(socks_port)
-    normalized_server_address = _normalize_server_address(server_address)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "socks-in",
-                "listen": "127.0.0.1",
-                "port": socks_port,
-                "protocol": "socks",
-                "settings": {"udp": False},
-            }
-        ],
-        "outbounds": [
-            {
-                "tag": "proxy",
-                "protocol": "vless",
-                "settings": {
-                    "address": normalized_server_address,
-                    "port": server_port,
-                    "id": material.client_id,
-                    "encryption": "none",
-                },
-                "streamSettings": {
-                    "method": "grpc",
-                    "security": "tls",
-                    "grpcSettings": {
-                        "serviceName": _grpc_service_name(material.client_id),
-                        "multiMode": False,
-                    },
-                    "tlsSettings": {
-                        "serverName": material.server_name,
-                        "fingerprint": "chrome",
-                        "alpn": ["h2"],
-                        "pinnedPeerCertSha256": material.certificate_sha256,
-                    },
-                },
-            },
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-    }
-
-
-def render_vmess_websocket_tls_server(
-    material: VlessTlsMaterial,
-    *,
-    port: int,
-    certificate_container_path: str = "/run/secrets/xray/server.crt",
-    private_key_container_path: str = "/run/secrets/xray/server.key",
-) -> dict[str, Any]:
-    """Render class 5 using Xray's VMess, WebSocket and TLS implementations."""
-    _validate_port(port)
-    websocket_path = _websocket_path(material.client_id)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "class-05-vmess-websocket-tls-in",
-                "listen": "0.0.0.0",
-                "port": port,
-                "protocol": "vmess",
-                "settings": {
-                    "clients": [
-                        {
-                            "id": material.client_id,
-                            "level": 0,
-                            "email": "class-05-collector",
-                        }
-                    ]
-                },
-                "streamSettings": {
-                    "method": "websocket",
-                    "security": "tls",
-                    "wsSettings": {
-                        "path": websocket_path,
-                        "host": material.server_name,
-                        "acceptProxyProtocol": False,
-                    },
-                    "tlsSettings": {
-                        "rejectUnknownSni": True,
-                        "minVersion": "1.3",
-                        "alpn": ["http/1.1"],
-                        "certificates": [
-                            {
-                                "certificateFile": certificate_container_path,
-                                "keyFile": private_key_container_path,
-                            }
-                        ],
-                    },
-                },
-            }
-        ],
-        "outbounds": [
-            {"tag": "direct", "protocol": "freedom"},
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-        "routing": _server_routing(),
-    }
-
-
-def render_vmess_websocket_tls_client(
-    material: VlessTlsMaterial,
-    *,
-    server_address: str,
-    server_port: int,
-    socks_port: int = 10808,
-) -> dict[str, Any]:
-    _validate_port(server_port)
-    _validate_port(socks_port)
-    normalized_server_address = _normalize_server_address(server_address)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "socks-in",
-                "listen": "127.0.0.1",
-                "port": socks_port,
-                "protocol": "socks",
-                "settings": {"udp": False},
-            }
-        ],
-        "outbounds": [
-            {
-                "tag": "proxy",
-                "protocol": "vmess",
-                "settings": {
-                    "address": normalized_server_address,
-                    "port": server_port,
-                    "id": material.client_id,
-                },
-                "streamSettings": {
-                    "method": "websocket",
-                    "security": "tls",
-                    "wsSettings": {
-                        "path": _websocket_path(material.client_id),
-                        "host": material.server_name,
-                    },
-                    "tlsSettings": {
-                        "serverName": material.server_name,
-                        "fingerprint": "chrome",
-                        "alpn": ["http/1.1"],
-                        "pinnedPeerCertSha256": material.certificate_sha256,
-                    },
-                },
-            },
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-    }
-
-
-def render_vmess_xhttp_h2_tls_server(
-    material: VlessTlsMaterial,
-    *,
-    port: int,
-    certificate_container_path: str = "/run/secrets/xray/server.crt",
-    private_key_container_path: str = "/run/secrets/xray/server.key",
-) -> dict[str, Any]:
-    """Render class 6 using Xray's VMess, XHTTP over HTTP/2 and TLS."""
-    _validate_port(port)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "class-06-vmess-xhttp-h2-tls-in",
-                "listen": "0.0.0.0",
-                "port": port,
-                "protocol": "vmess",
-                "settings": {
-                    "clients": [
-                        {
-                            "id": material.client_id,
-                            "level": 0,
-                            "email": "class-06-collector",
-                        }
-                    ]
-                },
-                "streamSettings": {
-                    "method": "xhttp",
-                    "security": "tls",
-                    "xhttpSettings": {
-                        "path": _xhttp_path(material.client_id),
-                        "host": material.server_name,
-                        "mode": "stream-up",
-                    },
-                    "tlsSettings": {
-                        "rejectUnknownSni": True,
-                        "minVersion": "1.3",
-                        "alpn": ["h2"],
-                        "certificates": [
-                            {
-                                "certificateFile": certificate_container_path,
-                                "keyFile": private_key_container_path,
-                            }
-                        ],
-                    },
-                },
-            }
-        ],
-        "outbounds": [
-            {"tag": "direct", "protocol": "freedom"},
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-        "routing": _server_routing(),
-    }
-
-
-def render_vmess_xhttp_h2_tls_client(
-    material: VlessTlsMaterial,
-    *,
-    server_address: str,
-    server_port: int,
-    socks_port: int = 10808,
-) -> dict[str, Any]:
-    _validate_port(server_port)
-    _validate_port(socks_port)
-    normalized_server_address = _normalize_server_address(server_address)
-    return {
-        "log": {"loglevel": "warning", "access": "none"},
-        "inbounds": [
-            {
-                "tag": "socks-in",
-                "listen": "127.0.0.1",
-                "port": socks_port,
-                "protocol": "socks",
-                "settings": {"udp": False},
-            }
-        ],
-        "outbounds": [
-            {
-                "tag": "proxy",
-                "protocol": "vmess",
-                "settings": {
-                    "address": normalized_server_address,
-                    "port": server_port,
-                    "id": material.client_id,
-                },
-                "streamSettings": {
-                    "method": "xhttp",
-                    "security": "tls",
-                    "xhttpSettings": {
-                        "path": _xhttp_path(material.client_id),
-                        "host": material.server_name,
-                        "mode": "stream-up",
-                    },
-                    "tlsSettings": {
-                        "serverName": material.server_name,
-                        "fingerprint": "chrome",
-                        "alpn": ["h2"],
-                        "pinnedPeerCertSha256": material.certificate_sha256,
-                    },
-                },
-            },
-            {"tag": "block", "protocol": "blackhole"},
-        ],
-    }
 
 
 def render_xray_case_server(
@@ -766,15 +225,45 @@ def render_xray_case_server(
     port: int,
 ) -> dict[str, Any]:
     if case_id == "vless-tcp-tls":
+        from proxy_traffic_lab.providers.xray.cases_vless import render_vless_tls_server
+
         return render_vless_tls_server(material, port=port)
     if case_id == "class-05-vmess-websocket-tls":
+        from proxy_traffic_lab.providers.xray.cases_vmess import (
+            render_vmess_websocket_tls_server,
+        )
+
         return render_vmess_websocket_tls_server(material, port=port)
     if case_id == "class-06-vmess-xhttp-h2-tls":
+        from proxy_traffic_lab.providers.xray.cases_vmess import (
+            render_vmess_xhttp_h2_tls_server,
+        )
+
         return render_vmess_xhttp_h2_tls_server(material, port=port)
     if case_id == "class-07-vless-raw-reality-vision":
+        from proxy_traffic_lab.providers.xray.cases_vless import (
+            render_vless_reality_vision_server,
+        )
+
         return render_vless_reality_vision_server(material, port=port)
     if case_id == "class-08-vless-grpc-tls":
+        from proxy_traffic_lab.providers.xray.cases_vless import (
+            render_vless_grpc_tls_server,
+        )
+
         return render_vless_grpc_tls_server(material, port=port)
+    if case_id == "class-09-trojan-raw-tls":
+        from proxy_traffic_lab.providers.xray.cases_trojan import (
+            render_trojan_raw_tls_server,
+        )
+
+        return render_trojan_raw_tls_server(material, port=port)
+    if case_id == "class-10-trojan-websocket-tls":
+        from proxy_traffic_lab.providers.xray.cases_trojan import (
+            render_trojan_websocket_tls_server,
+        )
+
+        return render_trojan_websocket_tls_server(material, port=port)
     raise ConfigurationError(f"Xray case is not implemented yet: {case_id}")
 
 
@@ -787,6 +276,8 @@ def render_xray_case_client(
     socks_port: int = 10808,
 ) -> dict[str, Any]:
     if case_id == "vless-tcp-tls":
+        from proxy_traffic_lab.providers.xray.cases_vless import render_vless_tls_client
+
         return render_vless_tls_client(
             material,
             server_address=server_address,
@@ -794,6 +285,10 @@ def render_xray_case_client(
             socks_port=socks_port,
         )
     if case_id == "class-05-vmess-websocket-tls":
+        from proxy_traffic_lab.providers.xray.cases_vmess import (
+            render_vmess_websocket_tls_client,
+        )
+
         return render_vmess_websocket_tls_client(
             material,
             server_address=server_address,
@@ -801,6 +296,10 @@ def render_xray_case_client(
             socks_port=socks_port,
         )
     if case_id == "class-06-vmess-xhttp-h2-tls":
+        from proxy_traffic_lab.providers.xray.cases_vmess import (
+            render_vmess_xhttp_h2_tls_client,
+        )
+
         return render_vmess_xhttp_h2_tls_client(
             material,
             server_address=server_address,
@@ -808,6 +307,10 @@ def render_xray_case_client(
             socks_port=socks_port,
         )
     if case_id == "class-07-vless-raw-reality-vision":
+        from proxy_traffic_lab.providers.xray.cases_vless import (
+            render_vless_reality_vision_client,
+        )
+
         return render_vless_reality_vision_client(
             material,
             server_address=server_address,
@@ -815,7 +318,33 @@ def render_xray_case_client(
             socks_port=socks_port,
         )
     if case_id == "class-08-vless-grpc-tls":
+        from proxy_traffic_lab.providers.xray.cases_vless import (
+            render_vless_grpc_tls_client,
+        )
+
         return render_vless_grpc_tls_client(
+            material,
+            server_address=server_address,
+            server_port=server_port,
+            socks_port=socks_port,
+        )
+    if case_id == "class-09-trojan-raw-tls":
+        from proxy_traffic_lab.providers.xray.cases_trojan import (
+            render_trojan_raw_tls_client,
+        )
+
+        return render_trojan_raw_tls_client(
+            material,
+            server_address=server_address,
+            server_port=server_port,
+            socks_port=socks_port,
+        )
+    if case_id == "class-10-trojan-websocket-tls":
+        from proxy_traffic_lab.providers.xray.cases_trojan import (
+            render_trojan_websocket_tls_client,
+        )
+
+        return render_trojan_websocket_tls_client(
             material,
             server_address=server_address,
             server_port=server_port,
@@ -1364,6 +893,10 @@ def _grpc_service_name(client_id: str) -> str:
     except (ValueError, TypeError) as exc:
         raise ConfigurationError("invalid VLESS client UUID") from exc
     return f"grpc{identifier.hex[:16]}"
+
+
+def _trojan_password(material: VlessTlsMaterial) -> str:
+    return hashlib.sha256(f"trojan:{material.client_id}".encode()).hexdigest()
 
 
 def _reality_values(material: VlessTlsMaterial) -> tuple[str, str, str]:
