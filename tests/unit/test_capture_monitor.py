@@ -138,6 +138,7 @@ def test_windows_plain_capture_continues_after_traffic_idle(monkeypatch) -> None
         start_chrome=False,
         start_url="about:blank",
         disable_quic=True,
+        isolate_chrome_network=False,
         progress_interval_seconds=2,
         idle_seconds=15,
         idle_bytes_per_second=32 * 1024,

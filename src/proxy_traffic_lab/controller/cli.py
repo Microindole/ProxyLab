@@ -244,6 +244,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="disable QUIC in the launched browser; leave off for realistic video",
     )
+    capture_win_ipv6.add_argument(
+        "--isolate-chrome-network",
+        action="store_true",
+        help=(
+            "temporarily block non-browser outbound traffic with Windows Firewall "
+            "during capture; requires an elevated Windows session"
+        ),
+    )
 
     experiment = subcommands.add_parser(
         "experiment", help="run a client-side capture experiment"
@@ -488,6 +496,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     start_chrome=args.start_chrome,
                     start_url=args.start_url,
                     disable_quic=args.disable_quic,
+                    isolate_chrome_network=args.isolate_chrome_network,
                     progress_interval_seconds=args.progress_interval,
                     idle_seconds=args.idle_seconds,
                     idle_bytes_per_second=args.idle_kib_per_second * 1024,
@@ -567,6 +576,7 @@ def _run_windows_ipv6_flow_capture(
     start_chrome: bool,
     start_url: str,
     disable_quic: bool,
+    isolate_chrome_network: bool,
     progress_interval_seconds: float,
     idle_seconds: float,
     idle_bytes_per_second: float,
@@ -580,46 +590,56 @@ def _run_windows_ipv6_flow_capture(
     )
     sessions: list[Path] = []
     segment_count = len(profiles)
-    if start_chrome:
-        _start_windows_no_proxy_browser(start_url=start_url, disable_quic=disable_quic)
+    isolation_enabled = False
+    try:
+        if isolate_chrome_network:
+            _set_windows_chrome_network_isolation(enable=True)
+            isolation_enabled = True
+        if start_chrome:
+            _start_windows_no_proxy_browser(
+                start_url=start_url, disable_quic=disable_quic
+            )
 
-    for segment_index, profile in enumerate(profiles, start=1):
-        segment_flow_count_mode = _resolve_windows_plain_flow_count_mode(
-            profile=profile,
-            requested_mode=flow_count_mode,
-        )
-        if segment_index > 1:
-            print(
-                f"Starting segment {segment_index}/{segment_count}: {profile}. "
-                "Wait for READY before beginning the next workload.",
-                flush=True,
+        for segment_index, profile in enumerate(profiles, start=1):
+            segment_flow_count_mode = _resolve_windows_plain_flow_count_mode(
+                profile=profile,
+                requested_mode=flow_count_mode,
             )
-        session_dir, stop_reason = _capture_windows_ipv6_flow_segment(
-            dumpcap=dumpcap,
-            interface=interface,
-            ip_version=ip_version,
-            flow_count_mode=segment_flow_count_mode,
-            requested_flow_count_mode=flow_count_mode,
-            target_flows=target_flows,
-            output_root=output_root,
-            profile=profile,
-            series_id=series_id,
-            segment_index=segment_index,
-            segment_count=segment_count,
-            progress_interval_seconds=progress_interval_seconds,
-            idle_seconds=idle_seconds,
-            idle_bytes_per_second=idle_bytes_per_second,
-            finish_timeout_seconds=finish_timeout_seconds,
-        )
-        sessions.append(session_dir)
-        if segment_index == segment_count:
-            break
-        if stop_reason != "target_flows_reached_and_traffic_idle":
-            print(
-                f"Series stopped after segment {segment_index}: {stop_reason}.",
-                flush=True,
+            if segment_index > 1:
+                print(
+                    f"Starting segment {segment_index}/{segment_count}: {profile}. "
+                    "Wait for READY before beginning the next workload.",
+                    flush=True,
+                )
+            session_dir, stop_reason = _capture_windows_ipv6_flow_segment(
+                dumpcap=dumpcap,
+                interface=interface,
+                ip_version=ip_version,
+                flow_count_mode=segment_flow_count_mode,
+                requested_flow_count_mode=flow_count_mode,
+                target_flows=target_flows,
+                output_root=output_root,
+                profile=profile,
+                series_id=series_id,
+                segment_index=segment_index,
+                segment_count=segment_count,
+                progress_interval_seconds=progress_interval_seconds,
+                idle_seconds=idle_seconds,
+                idle_bytes_per_second=idle_bytes_per_second,
+                finish_timeout_seconds=finish_timeout_seconds,
             )
-            break
+            sessions.append(session_dir)
+            if segment_index == segment_count:
+                break
+            if stop_reason != "target_flows_reached_and_traffic_idle":
+                print(
+                    f"Series stopped after segment {segment_index}: {stop_reason}.",
+                    flush=True,
+                )
+                break
+    finally:
+        if isolation_enabled:
+            _set_windows_chrome_network_isolation(enable=False)
     return tuple(sessions)
 
 
@@ -947,3 +967,34 @@ def _start_windows_no_proxy_browser(*, start_url: str, disable_quic: bool) -> No
     )
     if result.returncode != 0:
         raise LabError("failed to start Windows no-proxy browser")
+
+
+def _set_windows_chrome_network_isolation(*, enable: bool) -> None:
+    root = Path(__file__).resolve().parents[3]
+    script = root / "scripts" / "isolate_chrome_network.ps1"
+    if not script.is_file():
+        raise LabError(f"missing helper script: {script}")
+    action = "Enable" if enable else "Disable"
+    script_for_display = _wslpath_to_windows(script)
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        script_for_display,
+        "-Action",
+        action,
+    ]
+    result = subprocess.run(command, check=False, text=True)
+    if result.returncode != 0:
+        if enable:
+            raise LabError(
+                "failed to enable Chrome network isolation; rerun from an elevated "
+                "PowerShell or omit --isolate-chrome-network"
+            )
+        raise LabError(
+            "failed to disable Chrome network isolation; run "
+            f"`powershell -ExecutionPolicy Bypass -File {script_for_display} "
+            "-Action Disable` from an elevated PowerShell"
+        )
