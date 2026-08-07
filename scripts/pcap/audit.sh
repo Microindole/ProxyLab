@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/audit_pcap_summary.sh PCAP [PCAP ...]
+Usage: scripts/pcap/audit.sh PCAP [PCAP ...]
 
 Print a compact audit for one or more PCAP files:
   - packets, file size, capture duration

@@ -273,7 +273,7 @@ Target: 1.00 GiB
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
-  "\\wsl.localhost\Ubuntu\home\indole\proxy-traffic-lab\scripts\launch_capture_chrome.ps1"
+  "\\wsl.localhost\Ubuntu\home\indole\proxy-traffic-lab\scripts\browser\chrome.ps1"
 ```
 
 脚本会先用 Windows `curl.exe` 验证 SOCKS5；验证失败时不会启动浏览器。验证成功后，它会清理上一次专用配置残留的后台进程，再打开标题类似 `Example Domain - Google Chrome` 的窗口。

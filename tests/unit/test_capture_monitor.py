@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from proxy_traffic_lab.capture import experiment
 from proxy_traffic_lab.capture.experiment import _format_bytes
-from proxy_traffic_lab.controller import cli
+from proxy_traffic_lab.controller.commands import capture_windows
 from proxy_traffic_lab.controller.cli import build_parser
 
 
@@ -97,21 +97,21 @@ def test_capture_windows_ipv6_parser() -> None:
 
 def test_windows_plain_auto_uses_conversations_for_video_only() -> None:
     assert (
-        cli._resolve_windows_plain_flow_count_mode(
+        capture_windows._resolve_windows_plain_flow_count_mode(
             profile="video-bilibili-01",
             requested_mode="auto",
         )
         == "conversation-5tuple"
     )
     assert (
-        cli._resolve_windows_plain_flow_count_mode(
+        capture_windows._resolve_windows_plain_flow_count_mode(
             profile="text-ai-kimi-01",
             requested_mode="auto",
         )
         == "established"
     )
     assert (
-        cli._resolve_windows_plain_flow_count_mode(
+        capture_windows._resolve_windows_plain_flow_count_mode(
             profile="video-bilibili-01",
             requested_mode="syn",
         )
@@ -126,9 +126,17 @@ def test_windows_plain_capture_continues_after_traffic_idle(monkeypatch) -> None
         calls.append(kwargs["profile"])
         return Path(f"/{kwargs['profile']}"), "target_flows_reached_and_traffic_idle"
 
-    monkeypatch.setattr(cli, "_find_windows_dumpcap_for_wsl", lambda: Path("dumpcap.exe"))
-    monkeypatch.setattr(cli, "_capture_windows_ipv6_flow_segment", fake_segment)
-    sessions = cli._run_windows_ipv6_flow_capture(
+    monkeypatch.setattr(
+        capture_windows,
+        "_find_windows_dumpcap_for_wsl",
+        lambda: Path("dumpcap.exe"),
+    )
+    monkeypatch.setattr(
+        capture_windows,
+        "_capture_windows_ipv6_flow_segment",
+        fake_segment,
+    )
+    sessions = capture_windows._run_windows_ipv6_flow_capture(
         interface="4",
         ip_version="mixed",
         flow_count_mode="established",

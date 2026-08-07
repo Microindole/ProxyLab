@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/filter_incomplete_tcp_flows.sh PCAP [PCAP ...]
+Usage: scripts/pcap/filter-tcp.sh PCAP [PCAP ...]
 
 For each classic PCAP, write:
   <name>.incomplete-streams.tsv  audit manifest of excluded tcp.stream values

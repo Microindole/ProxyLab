@@ -141,7 +141,7 @@ Target: 3000 outer TCP flows
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
-  "\\wsl.localhost\Ubuntu\home\indole\proxy-traffic-lab\scripts\launch_capture_chrome.ps1"
+  "\\wsl.localhost\Ubuntu\home\indole\proxy-traffic-lab\scripts\browser\chrome.ps1"
 ```
 
 启动器默认打开 `about:blank`，不会自动访问任何网站。不要在正式抓包期间添加 `-CheckProxy`。

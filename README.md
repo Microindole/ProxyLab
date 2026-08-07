@@ -27,6 +27,7 @@ English version: [Project overview](docs/en/README.md)
 
 ## 文档导航
 
+- [从 0 构建与开发环境](docs/zh/build.md)：Windows/WSL 安装、验证、Makefile 用途和脚本目录说明。
 - [普通网站采集](docs/zh/plain-capture.md)：Windows 普通网页、AI 聊天和视频流量采集流程。
 - [代理隧道采集](docs/zh/proxy-capture.md)：类别 5/6 代理隧道实验流量采集流程。
 - [历史容量分段流程](docs/zh/legacy-size-capture.md)：旧的按文件大小分段流程，仅作历史参考。
