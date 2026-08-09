@@ -6,7 +6,7 @@ from proxy_traffic_lab.capture.backend import (
     build_dumpcap_command,
     parse_capinfos_table,
 )
-from proxy_traffic_lab.controller.errors import ConfigurationError
+from proxy_traffic_lab.common.errors import ConfigurationError
 
 
 def test_dumpcap_command_forces_classic_pcap_and_full_packets() -> None:

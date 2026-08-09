@@ -1,8 +1,13 @@
 import pytest
 from pydantic import ValidationError
 
-from proxy_traffic_lab.controller.config import load_protocol_matrix
-from proxy_traffic_lab.controller.models import ProtocolMatrix
+from proxy_traffic_lab.configuration.composition import validate_case_composition
+from proxy_traffic_lab.configuration.loader import (
+    load_component_catalogs,
+    load_protocol_matrix,
+)
+from proxy_traffic_lab.common.errors import ConfigurationError
+from proxy_traffic_lab.configuration.models import ProtocolMatrix
 
 
 def _matrix_document() -> dict[str, object]:
@@ -28,46 +33,60 @@ def test_accepts_complete_target_matrix() -> None:
     ]
 
 
-def test_rejects_mislabeled_class_05() -> None:
+def _assert_unsupported(document: dict[str, object], index: int) -> None:
+    case = ProtocolMatrix.model_validate(document).cases[index]
+    catalogs = load_component_catalogs()
+    with pytest.raises(ConfigurationError, match="unsupported composition|cannot use"):
+        validate_case_composition(
+            case,
+            protocols=catalogs[0],
+            transports=catalogs[1],
+            encryptions=catalogs[2],
+            compatibility=catalogs[3],
+        )
+
+
+def test_rejects_unsupported_vmess_security() -> None:
     document = _matrix_document()
-    document["cases"][4]["security"] = "none"  # type: ignore[index]
-    with pytest.raises(ValidationError, match="class 5 must be"):
-        ProtocolMatrix.model_validate(document)
+    document["cases"][4]["encryption"] = "none"  # type: ignore[index]
+    _assert_unsupported(document, 4)
 
 
-def test_rejects_mislabeled_class_06() -> None:
+def test_rejects_unsupported_xhttp_mode() -> None:
     document = _matrix_document()
-    document["cases"][5]["obfs_mode"] = "h3"  # type: ignore[index]
-    with pytest.raises(ValidationError, match="class 6 must be"):
-        ProtocolMatrix.model_validate(document)
+    document["cases"][5]["parameters"]["mode"] = "h3"  # type: ignore[index]
+    _assert_unsupported(document, 5)
 
 
-def test_rejects_mislabeled_class_07() -> None:
+def test_rejects_unsupported_reality_security() -> None:
     document = _matrix_document()
-    document["cases"][6]["security"] = "tls"  # type: ignore[index]
-    with pytest.raises(ValidationError, match="class 7 must be"):
-        ProtocolMatrix.model_validate(document)
+    document["cases"][6]["encryption"] = "tls"  # type: ignore[index]
+    _assert_unsupported(document, 6)
 
 
-def test_rejects_mislabeled_class_08() -> None:
+def test_rejects_unsupported_vless_transport() -> None:
     document = _matrix_document()
-    document["cases"][7]["wrapper"] = "raw"  # type: ignore[index]
-    with pytest.raises(ValidationError, match="class 8 must be"):
-        ProtocolMatrix.model_validate(document)
+    document["cases"][7]["transport"] = "raw"  # type: ignore[index]
+    _assert_unsupported(document, 7)
 
 
-def test_rejects_mislabeled_class_11() -> None:
+def test_rejects_quic_over_tcp() -> None:
     document = _matrix_document()
     document["cases"][10]["outer_transport"] = "tcp"  # type: ignore[index]
-    with pytest.raises(ValidationError, match="class 11 must be"):
-        ProtocolMatrix.model_validate(document)
+    _assert_unsupported(document, 10)
 
 
-def test_rejects_mislabeled_class_12() -> None:
+def test_rejects_unknown_hysteria_parameter_shape() -> None:
     document = _matrix_document()
-    document["cases"][11]["obfs"] = None  # type: ignore[index]
-    with pytest.raises(ValidationError, match="class 12 must be"):
-        ProtocolMatrix.model_validate(document)
+    document["cases"][11]["parameters"]["obfs"] = "unknown"  # type: ignore[index]
+    _assert_unsupported(document, 11)
+
+
+def test_class_labels_are_data_not_code_constraints() -> None:
+    document = _matrix_document()
+    document["cases"][4]["id"] = "my-vmess-target"  # type: ignore[index]
+    matrix = ProtocolMatrix.model_validate(document)
+    assert matrix.cases[4].id == "my-vmess-target"
 
 
 def test_rejects_duplicate_dataset_class() -> None:

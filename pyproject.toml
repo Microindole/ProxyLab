@@ -23,7 +23,7 @@ traffic = [
 ]
 
 [project.scripts]
-lab = "proxy_traffic_lab.controller.cli:main"
+lab = "proxy_traffic_lab.cli.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/proxy_traffic_lab"]

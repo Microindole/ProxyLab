@@ -1,0 +1,6 @@
+schema_version: 1
+
+# Dataset directory labels for non-proxy Windows baseline captures.
+case_ids:
+  ipv6: class-00-plain-ipv6
+  mixed: class-00-plain-ipv4-ipv6

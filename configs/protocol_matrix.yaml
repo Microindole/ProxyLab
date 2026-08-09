@@ -1,146 +1,150 @@
 schema_version: 1
 
+# These are dataset targets, not Python constants. Add/remove/relabel targets here.
+required_dataset_classes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
 cases:
   - id: class-01-shadowsocks-2022-tcp
     dataset_class: 1
     enabled: true
     protocol: shadowsocks
-    client: xray
-    server: xray
+    client_core: xray-core
+    server_core: xray-core
     outer_transport: tcp
-    wrapper: raw
-    security: shadowsocks-2022
-    cipher: 2022-blake3-aes-128-gcm
+    transport: raw
+    encryption: shadowsocks-2022
+    parameters: {cipher: 2022-blake3-aes-128-gcm}
     inner_networks: [tcp]
 
   - id: class-02-shadowsocks-2022-udp
     dataset_class: 2
     enabled: true
     protocol: shadowsocks
-    client: xray
-    server: xray
+    client_core: xray-core
+    server_core: xray-core
     outer_transport: udp
-    wrapper: raw
-    security: shadowsocks-2022
-    cipher: 2022-blake3-aes-128-gcm
+    transport: raw
+    encryption: shadowsocks-2022
+    parameters: {cipher: 2022-blake3-aes-128-gcm}
     inner_networks: [udp]
 
   - id: class-03-ssr-auth-aes128-md5
     dataset_class: 3
     enabled: true
     protocol: shadowsocksr
-    client: shadowsocksr-native
-    server: shadowsocksr-native
+    client_core: shadowsocksr-native
+    server_core: shadowsocksr-native
     outer_transport: tcp
-    wrapper: raw
-    security: none
-    cipher: aes-256-cfb
-    protocol_plugin: auth_aes128_md5
-    obfs: tls1.2_ticket_auth
+    transport: raw
+    encryption: none
+    parameters:
+      cipher: aes-256-cfb
+      protocol_plugin: auth_aes128_md5
+      obfs: tls1.2_ticket_auth
     inner_networks: [tcp]
 
   - id: class-04-ssr-auth-aes128-sha1
     dataset_class: 4
     enabled: true
     protocol: shadowsocksr
-    client: shadowsocksr-native
-    server: shadowsocksr-native
+    client_core: shadowsocksr-native
+    server_core: shadowsocksr-native
     outer_transport: tcp
-    wrapper: raw
-    security: none
-    cipher: aes-256-cfb
-    protocol_plugin: auth_aes128_sha1
-    obfs: tls1.2_ticket_auth
+    transport: raw
+    encryption: none
+    parameters:
+      cipher: aes-256-cfb
+      protocol_plugin: auth_aes128_sha1
+      obfs: tls1.2_ticket_auth
     inner_networks: [tcp]
 
   - id: class-05-vmess-websocket-tls
     dataset_class: 5
     enabled: true
     protocol: vmess
-    client: xray
-    server: xray
+    client_core: xray-core
+    server_core: xray-core
     outer_transport: tcp
-    wrapper: websocket
-    security: tls
-    flow: null
+    transport: websocket
+    encryption: tls
     inner_networks: [tcp]
 
   - id: class-06-vmess-xhttp-h2-tls
     dataset_class: 6
     enabled: true
     protocol: vmess
-    client: xray
-    server: xray
+    client_core: xray-core
+    server_core: xray-core
     outer_transport: tcp
-    wrapper: xhttp
-    security: tls
-    obfs_mode: h2
+    transport: xhttp
+    encryption: tls
+    parameters: {mode: h2}
     inner_networks: [tcp]
 
   - id: class-07-vless-raw-reality-vision
     dataset_class: 7
     enabled: true
     protocol: vless
-    client: xray
-    server: xray
+    client_core: xray-core
+    server_core: xray-core
     outer_transport: tcp
-    wrapper: raw
-    security: reality
-    flow: xtls-rprx-vision
+    transport: raw
+    encryption: reality
+    parameters: {flow: xtls-rprx-vision}
     inner_networks: [tcp]
 
   - id: class-08-vless-grpc-tls
     dataset_class: 8
     enabled: true
     protocol: vless
-    client: xray
-    server: xray
+    client_core: xray-core
+    server_core: xray-core
     outer_transport: tcp
-    wrapper: grpc
-    security: tls
+    transport: grpc
+    encryption: tls
     inner_networks: [tcp]
 
   - id: class-09-trojan-raw-tls
     dataset_class: 9
     enabled: true
     protocol: trojan
-    client: xray
-    server: xray
+    client_core: xray-core
+    server_core: xray-core
     outer_transport: tcp
-    wrapper: raw
-    security: tls
+    transport: raw
+    encryption: tls
     inner_networks: [tcp]
 
   - id: class-10-trojan-websocket-tls
     dataset_class: 10
     enabled: true
     protocol: trojan
-    client: xray
-    server: xray
+    client_core: xray-core
+    server_core: xray-core
     outer_transport: tcp
-    wrapper: websocket
-    security: tls
+    transport: websocket
+    encryption: tls
     inner_networks: [tcp]
 
   - id: class-11-hysteria2-quic-tls
     dataset_class: 11
     enabled: true
     protocol: hysteria2
-    client: hysteria2
-    server: hysteria2
+    client_core: hysteria2
+    server_core: hysteria2
     outer_transport: udp
-    wrapper: quic
-    security: tls
+    transport: quic
+    encryption: tls
     inner_networks: [tcp, udp]
 
   - id: class-12-hysteria2-quic-salamander-tls
     dataset_class: 12
     enabled: true
     protocol: hysteria2
-    client: hysteria2
-    server: hysteria2
+    client_core: hysteria2
+    server_core: hysteria2
     outer_transport: udp
-    wrapper: quic
-    security: tls
-    obfs: salamander
+    transport: quic
+    encryption: tls
+    parameters: {obfs: salamander}
     inner_networks: [tcp, udp]

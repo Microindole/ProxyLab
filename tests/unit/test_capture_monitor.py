@@ -2,9 +2,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from proxy_traffic_lab.capture import experiment
+from proxy_traffic_lab.capture import windows as capture_windows
 from proxy_traffic_lab.capture.experiment import _format_bytes
-from proxy_traffic_lab.controller.commands import capture_windows
-from proxy_traffic_lab.controller.cli import build_parser
+from proxy_traffic_lab.cli.app import build_parser
 
 
 def test_format_bytes_uses_binary_units() -> None:
@@ -151,6 +151,7 @@ def test_windows_plain_capture_continues_after_traffic_idle(monkeypatch) -> None
         idle_seconds=15,
         idle_bytes_per_second=32 * 1024,
         finish_timeout_seconds=300,
+        case_id="plain-mixed-test",
     )
 
     assert calls == ["one", "two"]

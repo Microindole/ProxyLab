@@ -1,0 +1,7 @@
+schema_version: 1
+transports:
+  - {id: raw, outer_transports: [tcp, udp], description: Native/raw stream}
+  - {id: websocket, outer_transports: [tcp], description: WebSocket wrapper}
+  - {id: xhttp, outer_transports: [tcp], description: XHTTP wrapper}
+  - {id: grpc, outer_transports: [tcp], description: gRPC over HTTP/2}
+  - {id: quic, outer_transports: [udp], description: QUIC transport}

@@ -4,35 +4,44 @@ from typing import Self
 
 import pytest
 
-from proxy_traffic_lab.controller.errors import ConfigurationError
-from proxy_traffic_lab.providers.xray import (
-    XRAY_OFFICIAL_IMAGE_TAG,
-    VlessTlsMaterial,
-    ensure_reality_material,
-    render_vless_grpc_tls_client,
-    render_vless_grpc_tls_server,
-    render_vless_reality_vision_client,
-    render_vless_reality_vision_server,
+from proxy_traffic_lab.common.errors import ConfigurationError
+from proxy_traffic_lab.encryptions.material import TlsMaterial
+from proxy_traffic_lab.protocols.xray.shadowsocks import (
+    render_shadowsocks_2022_client,
+    render_shadowsocks_2022_server,
+)
+from proxy_traffic_lab.protocols.xray.trojan import (
     render_trojan_raw_tls_client,
     render_trojan_raw_tls_server,
     render_trojan_websocket_tls_client,
     render_trojan_websocket_tls_server,
-    render_shadowsocks_2022_client,
-    render_shadowsocks_2022_server,
+)
+from proxy_traffic_lab.protocols.xray.vless import (
+    render_vless_grpc_tls_client,
+    render_vless_grpc_tls_server,
+    render_vless_reality_vision_client,
+    render_vless_reality_vision_server,
     render_vless_tls_client,
     render_vless_tls_server,
+)
+from proxy_traffic_lab.protocols.xray.vmess import (
     render_vmess_websocket_tls_client,
     render_vmess_websocket_tls_server,
     render_vmess_xhttp_h2_tls_client,
     render_vmess_xhttp_h2_tls_server,
-    validate_generated_client_address,
+)
+import proxy_traffic_lab.lifecycle.xray.credentials as xray_credentials
+import proxy_traffic_lab.lifecycle.xray.server as xray_server
+from proxy_traffic_lab.lifecycle.xray.credentials import ensure_reality_material
+from proxy_traffic_lab.lifecycle.xray.documents import validate_generated_client_address
+from proxy_traffic_lab.kernels.xray import (
+    XRAY_OFFICIAL_IMAGE_TAG,
     validate_official_image_digest,
 )
-from proxy_traffic_lab.providers.xray import runtime as xray
 
 
-def _material() -> VlessTlsMaterial:
-    return VlessTlsMaterial(
+def _material() -> TlsMaterial:
+    return TlsMaterial(
         client_id="123e4567-e89b-42d3-a456-426614174000",
         server_name="lab.invalid",
         certificate_sha256="a" * 64,
@@ -268,10 +277,10 @@ def test_ensure_reality_material_persists_generated_keys(
 
         return Result()
 
-    monkeypatch.setattr(xray, "run_command", fake_run_command)
+    monkeypatch.setattr(xray_credentials, "run_command", fake_run_command)
     material = ensure_reality_material(
         secrets_dir,
-        VlessTlsMaterial(
+        TlsMaterial(
             client_id=_material().client_id,
             server_name="lab.invalid",
             certificate_sha256="a" * 64,
@@ -328,7 +337,7 @@ def test_server_status_reports_listener_health(tmp_path: Path, monkeypatch: pyte
     config = tmp_path / "secrets" / "generated" / "server.json"
     config.parent.mkdir(parents=True)
     config.write_text(json.dumps({"inbounds": [{"port": 24443}]}), encoding="utf-8")
-    monkeypatch.setattr(xray, "_container_state", lambda: "running")
+    monkeypatch.setattr(xray_server, "container_state", lambda _name: "running")
 
     class Connection:
         def __enter__(self) -> Self:
@@ -337,12 +346,12 @@ def test_server_status_reports_listener_health(tmp_path: Path, monkeypatch: pyte
         def __exit__(self, *args: object) -> None:
             return None
 
-    monkeypatch.setattr(xray.socket, "create_connection", lambda *args, **kwargs: Connection())
-    status = xray.server_status(tmp_path)
+    monkeypatch.setattr(xray_server.socket, "create_connection", lambda *args, **kwargs: Connection())
+    status = xray_server.server_status(tmp_path)
     assert status["healthy"] is True
     assert status["port"] == 24443
 
 
 def test_server_stop_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(xray, "_container_state", lambda: "absent")
-    assert xray.stop_server_container() == "already absent"
+    monkeypatch.setattr(xray_server, "container_state", lambda _name: "absent")
+    assert xray_server.stop_server_container() == "already absent"

@@ -2,23 +2,23 @@ from pathlib import Path
 
 import pytest
 
-from proxy_traffic_lab.controller.errors import ConfigurationError
-from proxy_traffic_lab.controller.config import project_root
-from proxy_traffic_lab.providers.shadowsocksr_native.configs import (
+from proxy_traffic_lab.common.errors import ConfigurationError
+from proxy_traffic_lab.configuration.loader import load_protocol_matrix, project_root
+from proxy_traffic_lab.lifecycle.shadowsocksr_documents import (
     create_identity,
     load_identity,
+)
+from proxy_traffic_lab.protocols.shadowsocksr import (
     render_case,
     validate_documents,
 )
-from proxy_traffic_lab.providers.shadowsocksr_native.runtime import (
-    SSR_SOURCE_COMMIT,
-)
-from proxy_traffic_lab.providers.shadowsocksr_native import runtime as ssr_runtime
+from proxy_traffic_lab.kernels.shadowsocksr import SSR_SOURCE_COMMIT
+import proxy_traffic_lab.kernels.shadowsocksr as ssr_kernel
 
 
 def test_class_03_renders_upstream_native_config() -> None:
     rendered = render_case(
-        "class-03-ssr-auth-aes128-md5",
+        load_protocol_matrix().cases[2],
         password="a-secure-test-password",
         server_address="203.0.113.10",
         server_port=24443,
@@ -32,7 +32,7 @@ def test_class_03_renders_upstream_native_config() -> None:
 
 def test_class_04_renders_sha1_and_ipv6() -> None:
     rendered = render_case(
-        "class-04-ssr-auth-aes128-sha1",
+        load_protocol_matrix().cases[3],
         password="a-secure-test-password",
         server_address="2001:db8::10",
         server_port=24443,
@@ -83,8 +83,8 @@ def test_build_uses_pinned_commit_and_records_image_id(
         calls.append(tuple(args))
         return Result("sha256:" + "a" * 64 if "inspect" in args else "built")
 
-    monkeypatch.setattr(ssr_runtime, "run_command", fake_run)
-    image = ssr_runtime.build_pinned_image(tmp_path)
+    monkeypatch.setattr(ssr_kernel, "run_command", fake_run)
+    image = ssr_kernel.build_pinned_image(tmp_path)
     assert image == "sha256:" + "a" * 64
     assert f"SSR_COMMIT={SSR_SOURCE_COMMIT}" in calls[0]
-    assert ssr_runtime.load_image_lock(tmp_path) == image
+    assert ssr_kernel.load_image_lock(tmp_path) == image

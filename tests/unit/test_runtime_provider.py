@@ -1,8 +1,8 @@
 import pytest
 
-from proxy_traffic_lab.controller.config import load_lab_config, load_protocol_matrix
-from proxy_traffic_lab.controller.models import LabConfig, RuntimeCore
-from proxy_traffic_lab.providers.runtime import resolve_runtime_core
+from proxy_traffic_lab.configuration.loader import load_lab_config, load_protocol_matrix
+from proxy_traffic_lab.configuration.models import LabConfig, RuntimeCore
+from proxy_traffic_lab.lifecycle.registry import resolve_runtime_core
 
 
 def test_runtime_defaults_to_xray_core() -> None:

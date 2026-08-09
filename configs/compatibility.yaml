@@ -1,0 +1,61 @@
+schema_version: 1
+cores: [xray-core, shadowsocksr-native, hysteria2]
+rules:
+  - protocol: shadowsocks
+    cores: [xray-core]
+    outer_transports: [tcp, udp]
+    transport: raw
+    encryption: shadowsocks-2022
+    parameters: {cipher: [2022-blake3-aes-128-gcm]}
+  - protocol: shadowsocksr
+    cores: [shadowsocksr-native]
+    outer_transports: [tcp]
+    transport: raw
+    encryption: none
+    parameters:
+      cipher: [aes-256-cfb]
+      protocol_plugin: [auth_aes128_md5, auth_aes128_sha1]
+      obfs: [tls1.2_ticket_auth]
+  - protocol: vmess
+    cores: [xray-core]
+    outer_transports: [tcp]
+    transport: websocket
+    encryption: tls
+  - protocol: vmess
+    cores: [xray-core]
+    outer_transports: [tcp]
+    transport: xhttp
+    encryption: tls
+    parameters: {mode: [h2]}
+  - protocol: vless
+    cores: [xray-core]
+    outer_transports: [tcp]
+    transport: raw
+    encryption: reality
+    parameters: {flow: [xtls-rprx-vision]}
+  - protocol: vless
+    cores: [xray-core]
+    outer_transports: [tcp]
+    transport: grpc
+    encryption: tls
+  - protocol: trojan
+    cores: [xray-core]
+    outer_transports: [tcp]
+    transport: raw
+    encryption: tls
+  - protocol: trojan
+    cores: [xray-core]
+    outer_transports: [tcp]
+    transport: websocket
+    encryption: tls
+  - protocol: hysteria2
+    cores: [hysteria2]
+    outer_transports: [udp]
+    transport: quic
+    encryption: tls
+  - protocol: hysteria2
+    cores: [hysteria2]
+    outer_transports: [udp]
+    transport: quic
+    encryption: tls
+    parameters: {obfs: [salamander]}

@@ -1,13 +1,13 @@
 from pathlib import Path
 
-from proxy_traffic_lab.controller.config import project_root
-from proxy_traffic_lab.providers.hysteria2.configs import render_hysteria2_case
-from proxy_traffic_lab.providers.hysteria2.runtime import load_image_lock
-from proxy_traffic_lab.providers.xray.runtime import VlessTlsMaterial
+from proxy_traffic_lab.configuration.loader import load_protocol_matrix, project_root
+from proxy_traffic_lab.protocols.hysteria2 import render_hysteria2_case
+from proxy_traffic_lab.kernels.hysteria2 import load_image_lock
+from proxy_traffic_lab.encryptions.material import TlsMaterial
 
 
-def _material() -> VlessTlsMaterial:
-    return VlessTlsMaterial(
+def _material() -> TlsMaterial:
+    return TlsMaterial(
         client_id="12345678-1234-4234-8234-123456789abc",
         server_name="lab.invalid",
         certificate_sha256="ab" * 32,
@@ -18,7 +18,7 @@ def _material() -> VlessTlsMaterial:
 
 def test_class_11_renders_native_hysteria2_yaml_values() -> None:
     rendered = render_hysteria2_case(
-        "class-11-hysteria2-quic-tls",
+        load_protocol_matrix().cases[10],
         _material(),
         server_address="203.0.113.10",
         server_port=24443,
@@ -32,7 +32,7 @@ def test_class_11_renders_native_hysteria2_yaml_values() -> None:
 
 def test_class_12_renders_matching_salamander_settings() -> None:
     rendered = render_hysteria2_case(
-        "class-12-hysteria2-quic-salamander-tls",
+        load_protocol_matrix().cases[11],
         _material(),
         server_address="2001:db8::10",
         server_port=24443,

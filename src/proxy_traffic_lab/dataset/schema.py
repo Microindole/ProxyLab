@@ -36,7 +36,7 @@ class CapturePolicy(StrictModel):
 class ExperimentSpec(StrictModel):
     schema_version: Literal[1] = 1
     case_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]*$")
-    dataset_class: int = Field(ge=1, le=12)
+    dataset_class: int = Field(ge=0)
     profile: TrafficProfile
     inner_network: Literal["tcp", "udp"]
     outer_transport: Literal["tcp", "udp"]

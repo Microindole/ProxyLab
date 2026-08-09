@@ -1,2 +1,0 @@
-"""Linux network namespace isolation."""
-

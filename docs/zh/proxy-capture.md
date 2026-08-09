@@ -6,6 +6,33 @@
 > 普通网页/新闻/视频直连流量的当前流程已经迁移到 Windows 原生环境，
 > 见[普通网站采集](plain-capture.md)。两套流程不要混用。
 
+## 0. 基准三端拓扑
+
+现有 VMess 数据采用以下基准部署，新协议默认沿用它，以保证采集口径可比：
+
+| 位置 | 基准职责 |
+| --- | --- |
+| Win11 | 运行专用 Chrome，通过 `127.0.0.1:10808` SOCKS 进入 WSL |
+| WSL/Ubuntu | 运行代理客户端容器，并在 WSL 网卡抓取外层隧道 |
+| Linux 实验服务器 | 运行代理服务端容器并提供实验出口 |
+
+基准数据路径是：
+
+```text
+Win11 Chrome -> WSL SOCKS/客户端内核 -> Linux 实验服务器端内核 -> 目标网站
+                     ^
+                     └── WSL 抓“客户端内核 <-> Linux 服务器固定端口”
+```
+
+本手册的命令按这套基准拓扑标注：服务端配置和 `lab server ...` 在 Linux 服务器执行，
+`lab client ...`、连通性 `curl` 和 `lab capture run` 在 WSL 执行，PowerShell Chrome
+启动脚本在 Win11 执行。允许等价部署，但不能悄悄改变以下实验口径：
+
+- PCAP 必须采到代理客户端与实验服务器固定端口之间的外层隧道，而不是浏览器到 SOCKS 的本地段。
+- case、实际运行内核、外层 TCP/UDP 和 PCAP 标签必须一致。
+- 如果采集点或网络命名空间变化，必须写入元数据，不能与旧 VMess 样本假装成完全相同条件。
+- 已采集的 VMess 数据不会因为增加新 provider 或调整命令组织方式而失效；是否可用仍由其原始 PCAP、过滤范围、完整性和背景噪声决定。
+
 ## 1. 当前范围
 
 协议矩阵中的 12 类均已启用。类别 1/2 和 5--10 由 Xray-core 执行，类别 3/4
@@ -71,6 +98,8 @@ curl \
 Shadowsocks 是协议，Xray-core 是本矩阵选择的实现内核，因此配置仍由 `lab xray`
 生成，不存在单独的 Shadowsocks 进程：
 
+在基准拓扑中，以下命令在 **Linux 实验服务器** 执行：
+
 ```bash
 lab xray init-secrets
 lab xray render \
@@ -82,11 +111,20 @@ lab server start --case class-01-shadowsocks-2022-tcp
 ```
 
 类别 2 将 case 改为 `class-02-shadowsocks-2022-udp`，并确保服务器防火墙放行 UDP。
+服务器生成 `secrets/generated/client.json` 后，将它同步到 WSL；然后在 **WSL** 执行：
+
+```bash
+lab client start --case class-01-shadowsocks-2022-tcp \
+  --config "$HOME/proxy-lab-client/client.json"
+lab client status --case class-01-shadowsocks-2022-tcp
+```
 
 ### 类别 3/4：独立 ShadowsocksR-native 内核
 
 SSR 不属于 Xray 的 Shadowsocks 实现。本项目从固定的上游 Git commit 构建容器，
 避免依赖来源不明的第三方 SSR 镜像。SSR 内核较旧，只能在隔离、授权的实验环境使用。
+
+在基准拓扑中，以下命令在 **Linux 实验服务器** 执行：
 
 ```bash
 lab shadowsocksr build-image
@@ -100,11 +138,14 @@ lab server start --case class-03-ssr-auth-aes128-md5
 lab server status --case class-03-ssr-auth-aes128-md5
 ```
 
-类别 4 将 case 改为 `class-04-ssr-auth-aes128-sha1`。客户端只同步
-`configs/locks/shadowsocksr-native.json` 和
-`secrets/generated/shadowsocksr-client.json`，然后执行：
+类别 4 将 case 改为 `class-04-ssr-auth-aes128-sha1`。只把
+`secrets/generated/shadowsocksr-client.json` 同步到 WSL。不要复制服务器生成的
+`configs/locks/shadowsocksr-native.json`：它记录的是该主机本地构建的镜像 ID。
+
+然后在 **WSL** 执行一次本机镜像构建，并启动客户端：
 
 ```bash
+lab shadowsocksr build-image
 lab client start --case class-03-ssr-auth-aes128-md5 \
   --config secrets/generated/shadowsocksr-client.json
 lab client status --case class-03-ssr-auth-aes128-md5
@@ -181,7 +222,7 @@ lab server stop --case class-11-hysteria2-quic-tls
 - `configs/locks/hysteria2.json`
 - `secrets/generated/hysteria2-client.yaml`
 
-客户端不需要服务端私钥。客户端项目目录中执行：
+客户端不需要服务端私钥。在基准拓扑的 **WSL 客户端项目目录** 中执行：
 
 ```bash
 lab client start --case class-11-hysteria2-quic-tls \

@@ -20,9 +20,9 @@ from proxy_traffic_lab.capture.flow_tracker import (
     PcapL4ConversationTracker,
     PcapTcpFlowTracker,
 )
-from proxy_traffic_lab.controller.errors import ConfigurationError
-from proxy_traffic_lab.controller.models import ProtocolCase
-from proxy_traffic_lab.controller.subprocesses import run_command
+from proxy_traffic_lab.common.errors import ConfigurationError
+from proxy_traffic_lab.configuration.models import ProtocolCase
+from proxy_traffic_lab.common.process import run_command
 from proxy_traffic_lab.traffic.playwright_web import generate_web_traffic
 
 
@@ -636,9 +636,9 @@ def _write_metadata(
             "case_id": case.id,
             "proxy_protocol": case.protocol,
             "outer_transport": case.outer_transport,
-            "transport_wrapper": case.wrapper,
-            "security": case.security,
-            "flow": case.flow,
+            "transport_wrapper": case.transport,
+            "security": case.encryption,
+            "flow": case.parameter("flow"),
             "inner_network": "tcp",
             "application_profile": "web",
         },

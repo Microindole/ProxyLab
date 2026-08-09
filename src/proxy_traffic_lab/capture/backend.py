@@ -10,8 +10,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from proxy_traffic_lab.controller.errors import ConfigurationError
-from proxy_traffic_lab.controller.subprocesses import run_command
+from proxy_traffic_lab.common.errors import ConfigurationError
+from proxy_traffic_lab.common.process import run_command
 
 
 @dataclass(frozen=True)

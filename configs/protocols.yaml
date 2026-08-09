@@ -1,0 +1,8 @@
+schema_version: 1
+protocols:
+  - {id: shadowsocks, description: Shadowsocks proxy protocol}
+  - {id: shadowsocksr, description: ShadowsocksR proxy protocol}
+  - {id: vmess, description: VMess proxy protocol}
+  - {id: vless, description: VLESS proxy protocol}
+  - {id: trojan, description: Trojan proxy protocol}
+  - {id: hysteria2, description: Hysteria 2 proxy protocol}

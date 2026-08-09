@@ -1,0 +1,6 @@
+schema_version: 1
+encryptions:
+  - {id: none, description: No separate security layer}
+  - {id: tls, description: TLS security supplied by the upstream core}
+  - {id: reality, description: REALITY security supplied by Xray-core}
+  - {id: shadowsocks-2022, description: Shadowsocks 2022 AEAD supplied by Xray-core}

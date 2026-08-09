@@ -4,7 +4,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from proxy_traffic_lab.controller.errors import ConfigurationError
+from proxy_traffic_lab.common.errors import ConfigurationError
 
 
 @dataclass(frozen=True)

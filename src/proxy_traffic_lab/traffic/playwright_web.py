@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from proxy_traffic_lab.controller.errors import ConfigurationError
+from proxy_traffic_lab.common.errors import ConfigurationError
 
 
 @dataclass(frozen=True)

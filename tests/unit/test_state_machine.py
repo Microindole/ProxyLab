@@ -1,6 +1,6 @@
 import pytest
 
-from proxy_traffic_lab.controller.state_machine import (
+from proxy_traffic_lab.capture.state_machine import (
     ExperimentState,
     InvalidTransition,
     transition,
@@ -36,4 +36,3 @@ def test_cannot_skip_capture() -> None:
             ExperimentState.CLIENT_RUNNING,
             ExperimentState.TRAFFIC_RUNNING,
         )
-

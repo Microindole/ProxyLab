@@ -1,4 +1,4 @@
-from proxy_traffic_lab.controller.config import (
+from proxy_traffic_lab.configuration.loader import (
     load_lab_config,
     load_protocol_matrix,
 )
