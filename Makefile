@@ -1,9 +1,9 @@
 .PHONY: install doctor validate test clean
 
 install:
-	python3 -m venv .venv
-	.venv/bin/python -m pip install --upgrade pip
-	.venv/bin/python -m pip install -e '.[dev]'
+	uv python install 3.12
+	uv venv --python 3.12 .venv
+	uv pip install --python .venv/bin/python -e '.[dev]'
 
 doctor:
 	.venv/bin/lab doctor

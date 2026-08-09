@@ -3,28 +3,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from proxy_traffic_lab.capture.experiment import run_segmented_capture
-from proxy_traffic_lab.cli.commands.common import case_from_args
+from proxy_traffic_lab.cli.commands.common import add_command, case_from_args
 from proxy_traffic_lab.cli.commands.registry import COMMANDS
 from proxy_traffic_lab.common.errors import LabError
 from proxy_traffic_lab.cli.commands import capture_windows
 
 
 def register_parser(subcommands) -> None:
-    capture = subcommands.add_parser("capture", help="traffic capture operations")
+    capture = add_command(subcommands, "capture", aliases=("cap",), help="traffic capture operations")
     nested = capture.add_subparsers(dest="capture_command", required=True)
-    run = nested.add_parser("run", help="capture an outer proxy tunnel")
-    run.add_argument("--case", required=True)
-    run.add_argument("--server-ip", required=True)
-    run.add_argument("--server-port", required=True, type=int)
-    run.add_argument("--target-gib", type=float, default=1.0)
-    run.add_argument("--target-flows", type=int)
-    run.add_argument("--profile", action="append", dest="profiles")
-    run.add_argument("--interface")
-    run.add_argument("--progress-interval", type=float, default=5.0)
+    run = add_command(nested, "run", aliases=("r",), dest="capture_command", help="capture an outer proxy tunnel")
+    run.add_argument("-c", "--case", required=True)
+    run.add_argument("-a", "--server-ip", required=True)
+    run.add_argument("-p", "--server-port", required=True, type=int)
+    run.add_argument("-g", "--target-gib", type=float, default=1.0)
+    run.add_argument("-n", "--target-flows", type=int)
+    run.add_argument("-P", "--profile", action="append", dest="profiles")
+    run.add_argument("-i", "--interface")
+    run.add_argument("-I", "--progress-interval", type=float, default=5.0)
     run.add_argument("--idle-seconds", type=float, default=15.0)
     run.add_argument("--idle-kib-per-second", type=float, default=32.0)
     run.add_argument("--finish-timeout", type=float, default=300.0)
-    run.add_argument("--output-root", type=Path, default=Path("~/proxy-lab-data"))
+    run.add_argument("-o", "--output-root", type=Path, default=Path("~/proxy-lab-data"))
     capture_windows.register_parser(nested)
 
 

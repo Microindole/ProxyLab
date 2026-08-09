@@ -18,11 +18,13 @@ from proxy_traffic_lab.common.errors import LabError
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="lab")
     parser.add_argument(
+        "-L",
         "--lab-config",
         type=Path,
         help="path to lab.yaml (default: configs/lab.yaml)",
     )
     parser.add_argument(
+        "-M",
         "--matrix-config",
         type=Path,
         help="path to protocol target YAML (default: configs/protocol_matrix.yaml)",

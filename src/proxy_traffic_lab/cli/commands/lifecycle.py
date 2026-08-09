@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from proxy_traffic_lab.cli.commands.common import (
+    add_command,
     add_runtime_selector,
     runtime_core_for_args,
 )
@@ -13,26 +14,26 @@ from proxy_traffic_lab.lifecycle import registry as runtime
 
 
 def register_parser(subcommands) -> None:
-    server = subcommands.add_parser("server", help="proxy server lifecycle")
+    server = add_command(subcommands, "server", aliases=("srv",), help="proxy server lifecycle")
     server_sub = server.add_subparsers(dest="server_command", required=True)
-    for name in ("start", "status", "stop"):
-        add_runtime_selector(server_sub.add_parser(name))
-    logs = server_sub.add_parser("logs")
-    logs.add_argument("--tail", type=int, default=100)
+    for name, alias in (("start", "up"), ("status", "st"), ("stop", "down")):
+        add_runtime_selector(add_command(server_sub, name, aliases=(alias,), dest="server_command"))
+    logs = add_command(server_sub, "logs", aliases=("log",), dest="server_command")
+    logs.add_argument("-n", "--tail", type=int, default=100)
     add_runtime_selector(logs)
 
-    client = subcommands.add_parser("client", help="local proxy client lifecycle")
+    client = add_command(subcommands, "client", aliases=("cli",), help="local proxy client lifecycle")
     client_sub = client.add_subparsers(dest="client_command", required=True)
-    start = client_sub.add_parser("start")
-    start.add_argument("--config", type=Path)
+    start = add_command(client_sub, "start", aliases=("up",), dest="client_command")
+    start.add_argument("-f", "--config", type=Path)
     add_runtime_selector(start)
-    status = client_sub.add_parser("status")
-    status.add_argument("--socks-port", type=int, default=10808)
+    status = add_command(client_sub, "status", aliases=("st",), dest="client_command")
+    status.add_argument("-s", "--socks-port", type=int, default=10808)
     add_runtime_selector(status)
-    logs = client_sub.add_parser("logs")
-    logs.add_argument("--tail", type=int, default=100)
+    logs = add_command(client_sub, "logs", aliases=("log",), dest="client_command")
+    logs.add_argument("-n", "--tail", type=int, default=100)
     add_runtime_selector(logs)
-    add_runtime_selector(client_sub.add_parser("stop"))
+    add_runtime_selector(add_command(client_sub, "stop", aliases=("down",), dest="client_command"))
 
 
 @COMMANDS.handler("server", "start")

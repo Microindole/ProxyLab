@@ -5,7 +5,8 @@
 ## 文档
 
 - [从 0 构建与开发环境](build.md)：Windows/WSL 安装、验证、Makefile 用途和脚本目录说明。
-- [项目架构与 YAML 组合模型](architecture.md)：目标矩阵、分层配置、provider 边界和 CLI 注册表。
+- [项目架构与 YAML 组合模型](architecture.md)：目标矩阵、分层配置、职责边界和 CLI 注册表。
+- [命令行短别名](cli.md)：命令别名、高频短参数和示例。
 - [普通网站采集](plain-capture.md)：Windows 普通网页、AI 聊天和视频流量采集。
 - [代理隧道采集](proxy-capture.md)：12 类授权实验隧道流量的内核配置与采集。
 - [历史容量分段流程](legacy-size-capture.md)：旧的按文件大小分段流程，仅作历史参考。

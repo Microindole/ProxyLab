@@ -1,0 +1,12 @@
+# Keep repository text identical across Windows, WSL, and Linux.
+* text=auto eol=lf
+
+# Explicit binary artifacts, if examples are ever checked in.
+*.pcap binary
+*.pcapng binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

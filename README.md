@@ -18,6 +18,7 @@
 
 - [从 0 构建与开发环境](docs/zh/build.md)：Windows/WSL 安装、验证、Makefile 用途和脚本目录说明。
 - [项目架构](docs/zh/architecture.md)：源码层次、职责边界、YAML 目标矩阵与组合校验。
+- [命令行短别名](docs/zh/cli.md)：长命令兼容、命令别名和高频短参数。
 - [普通网站采集](docs/zh/plain-capture.md)：Windows 普通网页、AI 聊天和视频流量采集流程。
 - [代理隧道采集](docs/zh/proxy-capture.md)：TCP 类别与 Hysteria 2/QUIC 类别的实验流量采集流程。
 - [历史容量分段流程](docs/zh/legacy-size-capture.md)：旧的按文件大小分段流程，仅作历史参考。
@@ -27,7 +28,9 @@
 ## 快速检查
 
 ```bash
-python -m pip install -e '.[dev]'
+uv python install 3.12
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e '.[dev]'
 lab config validate
 lab matrix list
 lab matrix compose --protocol vmess --transport websocket --encryption tls \

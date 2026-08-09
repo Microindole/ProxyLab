@@ -5,6 +5,7 @@ import json
 
 from proxy_traffic_lab.configuration.composition import validate_case_composition
 from proxy_traffic_lab.cli.commands.registry import COMMANDS
+from proxy_traffic_lab.cli.commands.common import add_command
 from proxy_traffic_lab.configuration.loader import (
     load_component_catalogs,
     load_lab_config,
@@ -16,26 +17,26 @@ from proxy_traffic_lab.common.errors import LabError
 
 
 def register_parser(subcommands) -> None:
-    doctor = subcommands.add_parser("doctor", help="diagnose the current host")
-    doctor.add_argument("--json", action="store_true")
-    doctor.add_argument("--no-network", action="store_true")
+    doctor = add_command(subcommands, "doctor", aliases=("d",), help="diagnose the current host")
+    doctor.add_argument("-j", "--json", action="store_true")
+    doctor.add_argument("-N", "--no-network", action="store_true")
 
-    config = subcommands.add_parser("config", help="configuration operations")
+    config = add_command(subcommands, "config", aliases=("cfg",), help="configuration operations")
     config_sub = config.add_subparsers(dest="config_command", required=True)
-    config_sub.add_parser("validate", help="validate lab, layers and target matrix")
+    add_command(config_sub, "validate", aliases=("v",), dest="config_command", help="validate lab, layers and target matrix")
 
-    matrix = subcommands.add_parser("matrix", help="dataset target/composition operations")
+    matrix = add_command(subcommands, "matrix", aliases=("mx",), help="dataset target/composition operations")
     matrix_sub = matrix.add_subparsers(dest="matrix_command", required=True)
-    matrix_sub.add_parser("list", help="list configured target cases")
-    compose = matrix_sub.add_parser("compose", help="validate a custom layer composition")
-    compose.add_argument("--protocol", required=True)
-    compose.add_argument("--transport", required=True)
-    compose.add_argument("--encryption", required=True)
-    compose.add_argument("--outer-transport", required=True)
-    compose.add_argument("--client-core", required=True)
-    compose.add_argument("--server-core", required=True)
-    compose.add_argument("--parameter", action="append", default=[], metavar="KEY=VALUE")
-    compose.add_argument("--inner-network", action="append", default=["tcp"])
+    add_command(matrix_sub, "list", aliases=("ls",), dest="matrix_command", help="list configured target cases")
+    compose = add_command(matrix_sub, "compose", aliases=("cmp",), dest="matrix_command", help="validate a custom layer composition")
+    compose.add_argument("-p", "--protocol", required=True)
+    compose.add_argument("-t", "--transport", required=True)
+    compose.add_argument("-e", "--encryption", required=True)
+    compose.add_argument("-o", "--outer-transport", required=True)
+    compose.add_argument("-C", "--client-core", required=True)
+    compose.add_argument("-S", "--server-core", required=True)
+    compose.add_argument("-P", "--parameter", action="append", default=[], metavar="KEY=VALUE")
+    compose.add_argument("-n", "--inner-network", action="append", default=["tcp"])
 
 
 @COMMANDS.handler("doctor")

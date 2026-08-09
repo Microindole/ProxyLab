@@ -6,51 +6,62 @@ from pathlib import Path
 from typing import Any
 
 from proxy_traffic_lab.capture.windows import WindowsCaptureRequest, execute_windows_capture
+from proxy_traffic_lab.cli.commands.common import add_command
 from proxy_traffic_lab.cli.commands.registry import COMMANDS
 
 
 def register_parser(capture_subcommands: Any) -> None:
-    windows_ipv6 = capture_subcommands.add_parser(
+    windows_ipv6 = add_command(
+        capture_subcommands,
         "windows-ipv6",
+        aliases=("win6",),
+        dest="capture_command",
         help="capture plain Win11 IPv6 browser traffic with Windows dumpcap",
     )
     windows_ipv6.add_argument(
+        "-l",
         "--list-interfaces",
         action="store_true",
         help="list Windows dumpcap interfaces and exit",
     )
     windows_ipv6.add_argument(
+        "-i",
         "--interface",
         help="Windows dumpcap interface number or name, from --list-interfaces",
     )
     windows_ipv6.add_argument(
+        "-o",
         "--output",
         type=Path,
         help="single output PCAP path; omit when using repeated --profile",
     )
     windows_ipv6.add_argument(
+        "-P",
         "--profile",
         action="append",
         dest="profiles",
         help="profile for one PCAP; repeat to capture multiple PCAPs in sequence",
     )
     windows_ipv6.add_argument(
+        "-O",
         "--output-root",
         type=Path,
         default=Path("~/proxy-lab-data/plain"),
         help="root used with --profile; default: ~/proxy-lab-data/plain",
     )
     windows_ipv6.add_argument(
+        "-c",
         "--case-id",
         help="override the plain capture case id from configs/plain_capture.yaml",
     )
     windows_ipv6.add_argument(
+        "-6",
         "--ip-version",
         choices=("ipv6", "mixed"),
         default="mixed",
         help="capture only IPv6, or mixed IPv4+IPv6; default: mixed",
     )
-    windows_ipv6.add_argument("--target-flows", type=int)
+    windows_ipv6.add_argument("-n", "--target-flows", type=int)
     windows_ipv6.add_argument(
         "--flow-count-mode",
         choices=("auto", "established", "syn", "conversation-5tuple"),
@@ -65,7 +76,7 @@ def register_parser(capture_subcommands: Any) -> None:
     windows_ipv6.add_argument("--idle-seconds", type=float, default=15.0)
     windows_ipv6.add_argument("--idle-kib-per-second", type=float, default=32.0)
     windows_ipv6.add_argument("--finish-timeout", type=float, default=300.0)
-    windows_ipv6.add_argument("--duration-seconds", type=int, default=0)
+    windows_ipv6.add_argument("-d", "--duration-seconds", type=int, default=0)
     windows_ipv6.add_argument(
         "--start-url",
         default="https://test-ipv6.com/",

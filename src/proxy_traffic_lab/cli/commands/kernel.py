@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from proxy_traffic_lab.cli.commands.common import case_from_args
+from proxy_traffic_lab.cli.commands.common import add_command, case_from_args
 from proxy_traffic_lab.cli.commands.registry import COMMANDS
 from proxy_traffic_lab.configuration.loader import load_lab_config, project_root
 from proxy_traffic_lab.kernels.hysteria2 import lock_official_image as lock_hysteria2_image
@@ -29,42 +29,42 @@ def register_parser(subcommands) -> None:
 
 
 def _add_render_args(parser) -> None:
-    parser.add_argument("--case", required=True, help="case id from the target matrix")
-    parser.add_argument("--server-address", required=True)
-    parser.add_argument("--server-port", type=int, required=True)
-    parser.add_argument("--socks-port", type=int, default=10808)
+    parser.add_argument("-c", "--case", required=True, help="case id from the target matrix")
+    parser.add_argument("-a", "--server-address", required=True)
+    parser.add_argument("-p", "--server-port", type=int, required=True)
+    parser.add_argument("-s", "--socks-port", type=int, default=10808)
 
 
 def _add_tls_init_args(parser) -> None:
-    parser.add_argument("--server-name", default="lab.invalid")
-    parser.add_argument("--validity-days", type=int, default=30)
+    parser.add_argument("-n", "--server-name", default="lab.invalid")
+    parser.add_argument("-d", "--validity-days", type=int, default=30)
 
 
 def _register_xray(subcommands) -> None:
-    parser = subcommands.add_parser("xray", help="Xray-core adapter operations")
+    parser = add_command(subcommands, "xray", aliases=("xr",), help="Xray-core adapter operations")
     nested = parser.add_subparsers(dest="xray_command", required=True)
-    nested.add_parser("lock-image")
-    _add_tls_init_args(nested.add_parser("init-secrets"))
-    _add_render_args(nested.add_parser("render"))
-    nested.add_parser("validate")
+    add_command(nested, "lock-image", aliases=("lock",), dest="xray_command")
+    _add_tls_init_args(add_command(nested, "init-secrets", aliases=("init",), dest="xray_command"))
+    _add_render_args(add_command(nested, "render", aliases=("r",), dest="xray_command"))
+    add_command(nested, "validate", aliases=("v",), dest="xray_command")
 
 
 def _register_hysteria2(subcommands) -> None:
-    parser = subcommands.add_parser("hysteria2", help="Hysteria2 adapter operations")
+    parser = add_command(subcommands, "hysteria2", aliases=("hy2",), help="Hysteria2 adapter operations")
     nested = parser.add_subparsers(dest="hysteria2_command", required=True)
-    nested.add_parser("lock-image")
-    _add_tls_init_args(nested.add_parser("init-secrets"))
-    _add_render_args(nested.add_parser("render"))
-    nested.add_parser("validate")
+    add_command(nested, "lock-image", aliases=("lock",), dest="hysteria2_command")
+    _add_tls_init_args(add_command(nested, "init-secrets", aliases=("init",), dest="hysteria2_command"))
+    _add_render_args(add_command(nested, "render", aliases=("r",), dest="hysteria2_command"))
+    add_command(nested, "validate", aliases=("v",), dest="hysteria2_command")
 
 
 def _register_ssr(subcommands) -> None:
-    parser = subcommands.add_parser("shadowsocksr", help="SSR-native adapter operations")
+    parser = add_command(subcommands, "shadowsocksr", aliases=("ssr",), help="SSR-native adapter operations")
     nested = parser.add_subparsers(dest="shadowsocksr_command", required=True)
-    nested.add_parser("build-image")
-    nested.add_parser("init-secrets")
-    _add_render_args(nested.add_parser("render"))
-    nested.add_parser("validate")
+    add_command(nested, "build-image", aliases=("build",), dest="shadowsocksr_command")
+    add_command(nested, "init-secrets", aliases=("init",), dest="shadowsocksr_command")
+    _add_render_args(add_command(nested, "render", aliases=("r",), dest="shadowsocksr_command"))
+    add_command(nested, "validate", aliases=("v",), dest="shadowsocksr_command")
 
 
 @COMMANDS.handler("xray", "lock-image")
