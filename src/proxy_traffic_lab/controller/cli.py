@@ -20,24 +20,22 @@ from proxy_traffic_lab.controller.config import (
 from proxy_traffic_lab.controller.doctor import render_report, run_doctor
 from proxy_traffic_lab.controller.errors import LabError
 from proxy_traffic_lab.providers.xray import (
-    client_logs,
-    client_status,
     create_vless_tls_material,
     ensure_reality_material,
     load_vless_tls_material,
     lock_official_image,
     render_xray_case_client,
     render_xray_case_server,
-    server_logs,
-    server_status,
-    start_client_container,
-    start_server_container,
-    stop_client_container,
-    stop_server_container,
     validate_server_config_with_container,
     write_private_json,
 )
 from proxy_traffic_lab.providers.native_configs import write_native_case
+from proxy_traffic_lab.providers import runtime as managed_runtime
+from proxy_traffic_lab.providers.hysteria2 import (
+    lock_official_image as lock_hysteria2_image,
+    validate_generated_configs as validate_hysteria2_configs,
+    write_hysteria2_case,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -99,6 +97,38 @@ def build_parser() -> argparse.ArgumentParser:
         "validate", help="validate generated server config in the locked image"
     )
 
+    hysteria2 = subcommands.add_parser(
+        "hysteria2", help="Hysteria2 upstream-core configuration operations"
+    )
+    hysteria2_subcommands = hysteria2.add_subparsers(
+        dest="hysteria2_command", required=True
+    )
+    hysteria2_subcommands.add_parser(
+        "lock-image", help="pull and digest-lock the official Hysteria2 image"
+    )
+    hysteria2_init = hysteria2_subcommands.add_parser(
+        "init-secrets", help="create short-lived TLS and Hysteria2 credentials"
+    )
+    hysteria2_init.add_argument("--server-name", default="lab.invalid")
+    hysteria2_init.add_argument("--validity-days", type=int, default=30)
+    hysteria2_render = hysteria2_subcommands.add_parser(
+        "render", help="render native Hysteria2 server/client YAML"
+    )
+    hysteria2_render.add_argument(
+        "--case",
+        required=True,
+        choices=[
+            "class-11-hysteria2-quic-tls",
+            "class-12-hysteria2-quic-salamander-tls",
+        ],
+    )
+    hysteria2_render.add_argument("--server-address", required=True)
+    hysteria2_render.add_argument("--server-port", type=int, required=True)
+    hysteria2_render.add_argument("--socks-port", type=int, default=10808)
+    hysteria2_subcommands.add_parser(
+        "validate", help="validate generated YAML and pinned upstream image"
+    )
+
     native = subcommands.add_parser(
         "native", help="render configs for non-Xray protocol implementations"
     )
@@ -122,31 +152,49 @@ def build_parser() -> argparse.ArgumentParser:
 
     server = subcommands.add_parser("server", help="proxy server lifecycle")
     server_subcommands = server.add_subparsers(dest="server_command", required=True)
-    server_subcommands.add_parser("start", help="start the constrained Xray server")
-    server_subcommands.add_parser("status", help="show Xray container and listener state")
-    logs = server_subcommands.add_parser("logs", help="show Xray container logs")
+    server_start = server_subcommands.add_parser(
+        "start", help="start the selected constrained upstream-core server"
+    )
+    _add_runtime_selector(server_start)
+    server_status_parser = server_subcommands.add_parser(
+        "status", help="show selected core container and listener state"
+    )
+    _add_runtime_selector(server_status_parser)
+    logs = server_subcommands.add_parser(
+        "logs", help="show selected upstream-core server logs"
+    )
     logs.add_argument("--tail", type=int, default=100)
-    server_subcommands.add_parser("stop", help="stop and remove the Xray server")
+    _add_runtime_selector(logs)
+    server_stop = server_subcommands.add_parser(
+        "stop", help="stop and remove the selected core server"
+    )
+    _add_runtime_selector(server_stop)
 
-    client = subcommands.add_parser("client", help="local Xray client lifecycle")
+    client = subcommands.add_parser("client", help="local upstream-core client lifecycle")
     client_subcommands = client.add_subparsers(dest="client_command", required=True)
     client_start = client_subcommands.add_parser(
-        "start", help="start the constrained local Xray client"
+        "start", help="start the selected constrained local core client"
     )
     client_start.add_argument(
         "--config",
         type=Path,
-        default=Path("~/proxy-lab-client/client.json"),
+        default=None,
     )
+    _add_runtime_selector(client_start)
     client_status_parser = client_subcommands.add_parser(
-        "status", help="show local Xray client and SOCKS listener status"
+        "status", help="show selected local client and SOCKS listener status"
     )
     client_status_parser.add_argument("--socks-port", type=int, default=10808)
+    _add_runtime_selector(client_status_parser)
     client_logs_parser = client_subcommands.add_parser(
-        "logs", help="show local Xray client logs"
+        "logs", help="show selected local core client logs"
     )
     client_logs_parser.add_argument("--tail", type=int, default=100)
-    client_subcommands.add_parser("stop", help="stop and remove the local Xray client")
+    _add_runtime_selector(client_logs_parser)
+    client_stop = client_subcommands.add_parser(
+        "stop", help="stop and remove the selected local core client"
+    )
+    _add_runtime_selector(client_stop)
 
     capture = subcommands.add_parser(
         "capture", help="capture existing real traffic to a size-limited PCAP"
@@ -170,8 +218,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--target-flows",
         type=int,
         help=(
-            "outer TCP connection target; after reaching it, wait for all active "
-            "flows to close instead of cutting the PCAP"
+            "outer TCP connections or UDP five-tuples; TCP drains active flows, "
+            "while UDP stops after the target and an idle interval"
         ),
     )
     capture_run.add_argument(
@@ -316,6 +364,49 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(detail)
             return 0
 
+        if args.command == "hysteria2" and args.hysteria2_command == "lock-image":
+            root = Path(__file__).resolve().parents[3]
+            image = lock_hysteria2_image(root / "configs" / "locks" / "hysteria2.json")
+            print(f"Locked official Hysteria2 image: {image}")
+            return 0
+
+        if args.command == "hysteria2" and args.hysteria2_command == "init-secrets":
+            root = Path(__file__).resolve().parents[3]
+            material = create_vless_tls_material(
+                root / "secrets" / "hysteria2",
+                server_name=args.server_name,
+                validity_days=args.validity_days,
+            )
+            print(
+                "Created ignored Hysteria2 credentials; "
+                f"certificate_sha256={material.certificate_sha256}"
+            )
+            return 0
+
+        if args.command == "hysteria2" and args.hysteria2_command == "render":
+            root = Path(__file__).resolve().parents[3]
+            material = load_vless_tls_material(root / "secrets" / "hysteria2")
+            lab_config = load_lab_config(args.lab_config)
+            server_path, client_path = write_hysteria2_case(
+                root / "secrets" / "generated",
+                args.case,
+                material,
+                server_address=args.server_address,
+                server_port=args.server_port,
+                socks_port=args.socks_port,
+                bandwidth_mbps=lab_config.limits.max_bandwidth_mbps,
+            )
+            print(
+                "Rendered ignored Hysteria2 configs; "
+                f"case={args.case}; server={server_path.name}; client={client_path.name}"
+            )
+            return 0
+
+        if args.command == "hysteria2" and args.hysteria2_command == "validate":
+            root = Path(__file__).resolve().parents[3]
+            print(validate_hysteria2_configs(root))
+            return 0
+
         if args.command == "native" and args.native_command == "render":
             root = Path(__file__).resolve().parents[3]
             material = load_vless_tls_material(root / "secrets" / "xray")
@@ -335,40 +426,49 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "server" and args.server_command == "start":
             root = Path(__file__).resolve().parents[3]
-            container_id = start_server_container(root)
-            print(f"Xray server running: {container_id[:12]}")
+            core = _runtime_core_for_args(args, side="server")
+            container_id = managed_runtime.start_server(core, root)
+            print(f"{core.value} server running: {container_id[:12]}")
             return 0
 
         if args.command == "server" and args.server_command == "status":
             root = Path(__file__).resolve().parents[3]
-            status = server_status(root)
+            core = _runtime_core_for_args(args, side="server")
+            status = managed_runtime.server_status(core, root)
             print(json.dumps(status, ensure_ascii=False, indent=2))
             return 0 if status["healthy"] else 2
 
         if args.command == "server" and args.server_command == "logs":
-            print(server_logs(tail=args.tail))
+            core = _runtime_core_for_args(args, side="server")
+            print(managed_runtime.server_logs(core, tail=args.tail))
             return 0
 
         if args.command == "server" and args.server_command == "stop":
-            print(stop_server_container())
+            core = _runtime_core_for_args(args, side="server")
+            print(managed_runtime.stop_server(core))
             return 0
 
         if args.command == "client" and args.client_command == "start":
-            container_id = start_client_container(args.config)
-            print(f"Xray client running: {container_id[:12]}")
+            root = Path(__file__).resolve().parents[3]
+            core = _runtime_core_for_args(args, side="client")
+            container_id = managed_runtime.start_client(core, root, args.config)
+            print(f"{core.value} client running: {container_id[:12]}")
             return 0
 
         if args.command == "client" and args.client_command == "status":
-            status = client_status(socks_port=args.socks_port)
+            core = _runtime_core_for_args(args, side="client")
+            status = managed_runtime.client_status(core, socks_port=args.socks_port)
             print(json.dumps(status, ensure_ascii=False, indent=2))
             return 0 if status["healthy"] else 2
 
         if args.command == "client" and args.client_command == "logs":
-            print(client_logs(tail=args.tail))
+            core = _runtime_core_for_args(args, side="client")
+            print(managed_runtime.client_logs(core, tail=args.tail))
             return 0
 
         if args.command == "client" and args.client_command == "stop":
-            print(stop_client_container())
+            core = _runtime_core_for_args(args, side="client")
+            print(managed_runtime.stop_client(core))
             return 0
 
         if args.command == "capture" and args.capture_command == "run":
@@ -433,3 +533,34 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser.error("unsupported command")
     return 2
+
+
+def _add_runtime_selector(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--core",
+        choices=("xray-core", "hysteria2"),
+        help="upstream core; default comes from --case or configs/lab.yaml",
+    )
+    parser.add_argument(
+        "--case",
+        help="protocol case whose declared client/server core should be selected",
+    )
+
+
+def _runtime_core_for_args(args: argparse.Namespace, *, side: str):
+    lab_config = load_lab_config(args.lab_config)
+    case = None
+    if getattr(args, "case", None):
+        matrix = load_protocol_matrix()
+        case = next((item for item in matrix.cases if item.id == args.case), None)
+        if case is None:
+            raise LabError(f"unknown protocol case: {args.case}")
+    try:
+        return managed_runtime.resolve_runtime_core(
+            lab_config,
+            explicit=getattr(args, "core", None),
+            case=case,
+            side=side,
+        )
+    except ValueError as exc:
+        raise LabError(str(exc)) from exc

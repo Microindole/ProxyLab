@@ -16,7 +16,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from proxy_traffic_lab.capture.filters import tunnel_bpf
-from proxy_traffic_lab.capture.flow_tracker import PcapTcpFlowTracker
+from proxy_traffic_lab.capture.flow_tracker import (
+    PcapL4ConversationTracker,
+    PcapTcpFlowTracker,
+)
 from proxy_traffic_lab.controller.errors import ConfigurationError
 from proxy_traffic_lab.controller.models import ProtocolCase
 from proxy_traffic_lab.controller.subprocesses import run_command
@@ -82,9 +85,9 @@ def run_segmented_capture(
     else:
         if target_flows <= 0:
             raise ConfigurationError("target flow count must be positive")
-        if case.outer_transport != "tcp":
+        if case.outer_transport not in {"tcp", "udp"}:
             raise ConfigurationError(
-                "live flow-limited capture currently supports outer TCP only"
+                "live flow-limited capture requires outer TCP or UDP"
             )
     if progress_interval_seconds <= 0:
         raise ConfigurationError("progress interval must be positive")
@@ -142,6 +145,7 @@ def run_segmented_capture(
         if stop_reason not in {
             "target_reached_and_traffic_idle",
             "target_flows_reached_and_all_flows_closed",
+            "target_udp_conversations_reached_and_traffic_idle",
         }:
             print(
                 f"Series stopped after segment {segment_index}: {stop_reason}. "
@@ -179,7 +183,13 @@ def _capture_size_segment(
     )
     session_dir.mkdir(parents=True, exist_ok=False)
     pcap_path = session_dir / "capture.pcap"
-    flow_tracker = PcapTcpFlowTracker(pcap_path) if target_flows is not None else None
+    flow_tracker = None
+    if target_flows is not None:
+        flow_tracker = (
+            PcapTcpFlowTracker(pcap_path)
+            if case.outer_transport == "tcp"
+            else PcapL4ConversationTracker(pcap_path)
+        )
 
     process = _start_tcpdump(
         interface=selected_interface,
@@ -194,7 +204,11 @@ def _capture_size_segment(
     next_sudo_refresh = previous_time + _SUDO_REFRESH_INTERVAL_SECONDS
     flow_timeout_warning_at: float | None = None
     target_text = (
-        f"{target_flows} outer TCP flows"
+        (
+            f"{target_flows} outer TCP flows"
+            if case.outer_transport == "tcp"
+            else f"{target_flows} outer UDP 5-tuple conversations"
+        )
         if target_flows is not None
         else _format_bytes(target_bytes or 0)
     )
@@ -272,12 +286,20 @@ def _capture_size_segment(
                     if target_reached_at is None:
                         target_reached_at = now
                         flow_timeout_warning_at = now + finish_timeout_seconds
-                        print(
-                            f"Segment {segment_index}/{segment_count} flow target reached. "
-                            "Stop creating new sessions and let every active flow close; "
-                            "the PCAP will not be cut at the threshold.",
-                            flush=True,
-                        )
+                        if case.outer_transport == "tcp":
+                            print(
+                                f"Segment {segment_index}/{segment_count} flow target reached. "
+                                "Stop creating new sessions and let every active flow close; "
+                                "the PCAP will not be cut at the threshold.",
+                                flush=True,
+                            )
+                        else:
+                            print(
+                                f"Segment {segment_index}/{segment_count} UDP conversation "
+                                "target reached. Stop creating new workloads and wait for "
+                                "outer QUIC traffic to become idle.",
+                                flush=True,
+                            )
                     if flow_stats.active_flows == 0 and rate <= idle_bytes_per_second:
                         quiet_started_at = quiet_started_at or now
                     else:
@@ -286,7 +308,11 @@ def _capture_size_segment(
                         quiet_started_at is not None
                         and now - quiet_started_at >= idle_seconds
                     ):
-                        stop_reason = "target_flows_reached_and_all_flows_closed"
+                        stop_reason = (
+                            "target_flows_reached_and_all_flows_closed"
+                            if case.outer_transport == "tcp"
+                            else "target_udp_conversations_reached_and_traffic_idle"
+                        )
                         break
                     if (
                         flow_timeout_warning_at is not None
@@ -350,6 +376,16 @@ def _capture_size_segment(
             "end_time_utc": ended_at.isoformat(),
             "target_bytes": target_bytes,
             "target_flows": target_flows,
+            "flow_count_definition": (
+                "outer TCP connections beginning with SYN"
+                if target_flows is not None and case.outer_transport == "tcp"
+                else (
+                    "bidirectionally normalized outer UDP 5-tuple conversations; "
+                    "one multiplexed Hysteria2 QUIC connection may carry many inner flows"
+                    if target_flows is not None
+                    else None
+                )
+            ),
             "file_bytes": final_size,
             "target_met": target_met,
             "flow_count": (
@@ -360,6 +396,12 @@ def _capture_size_segment(
             ),
             "active_flow_count": (
                 final_flow_stats.active_flows if final_flow_stats is not None else None
+            ),
+            "tcp_conversation_count": (
+                final_flow_stats.tcp_conversations if final_flow_stats is not None else None
+            ),
+            "udp_conversation_count": (
+                final_flow_stats.udp_conversations if final_flow_stats is not None else None
             ),
             "stop_reason": stop_reason,
             "tcpdump_log": capture_stderr[-2000:],

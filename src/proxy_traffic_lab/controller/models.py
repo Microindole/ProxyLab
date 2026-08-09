@@ -17,6 +17,11 @@ class HostRole(StrEnum):
     COMBINED_DEV = "combined-dev"
 
 
+class RuntimeCore(StrEnum):
+    XRAY_CORE = "xray-core"
+    HYSTERIA2 = "hysteria2"
+
+
 class Limits(StrictModel):
     max_experiment_seconds: int = Field(default=300, ge=10, le=3600)
     max_capture_bytes: int = Field(
@@ -36,6 +41,10 @@ class VpsConfig(StrictModel):
     identity_file: Path | None = None
 
 
+class RuntimeConfig(StrictModel):
+    default_core: RuntimeCore = RuntimeCore.XRAY_CORE
+
+
 class LabConfig(StrictModel):
     schema_version: Literal[1]
     role: HostRole
@@ -43,6 +52,7 @@ class LabConfig(StrictModel):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     limits: Limits = Field(default_factory=Limits)
     vps: VpsConfig = Field(default_factory=VpsConfig)
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
 
 
 class ProtocolCase(StrictModel):
@@ -136,6 +146,32 @@ class ProtocolCase(StrictModel):
             )
             if not expected:
                 raise ValueError("class 8 must be VLESS + gRPC + TLS on Xray")
+        if self.dataset_class == 11:
+            expected = (
+                self.protocol == "hysteria2"
+                and self.client == "hysteria2"
+                and self.server == "hysteria2"
+                and self.outer_transport == "udp"
+                and self.wrapper == "quic"
+                and self.security == "tls"
+                and self.obfs is None
+            )
+            if not expected:
+                raise ValueError("class 11 must be Hysteria2 + QUIC + TLS")
+        if self.dataset_class == 12:
+            expected = (
+                self.protocol == "hysteria2"
+                and self.client == "hysteria2"
+                and self.server == "hysteria2"
+                and self.outer_transport == "udp"
+                and self.wrapper == "quic"
+                and self.security == "tls"
+                and self.obfs == "salamander"
+            )
+            if not expected:
+                raise ValueError(
+                    "class 12 must be Hysteria2 + QUIC + Salamander + TLS"
+                )
         return self
 
 

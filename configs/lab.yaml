@@ -3,6 +3,11 @@ role: server
 data_root: /var/lib/proxy-traffic-lab
 log_level: INFO
 
+runtime:
+  # Used by lifecycle commands when --case/--core is omitted.
+  # Protocol cases still select their declared client/server implementation.
+  default_core: xray-core
+
 limits:
   max_experiment_seconds: 300
   max_capture_bytes: 536870912

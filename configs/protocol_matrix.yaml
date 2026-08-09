@@ -124,9 +124,9 @@ cases:
 
   - id: class-11-hysteria2-quic-tls
     dataset_class: 11
-    enabled: false
+    enabled: true
     protocol: hysteria2
-    client: sing-box
+    client: hysteria2
     server: hysteria2
     outer_transport: udp
     wrapper: quic
@@ -135,9 +135,9 @@ cases:
 
   - id: class-12-hysteria2-quic-salamander-tls
     dataset_class: 12
-    enabled: false
+    enabled: true
     protocol: hysteria2
-    client: sing-box
+    client: hysteria2
     server: hysteria2
     outer_transport: udp
     wrapper: quic

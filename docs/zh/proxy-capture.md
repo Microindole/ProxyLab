@@ -1,6 +1,6 @@
-# 按外层流数量分段的手动 PCAP 采集手册
+# 代理隧道 PCAP 采集手册
 
-> 本手册只适用于代理隧道实验类别 5/6：Windows 浏览器进入本地实验客户端，
+> 本手册适用于代理隧道实验：Windows 浏览器进入本地实验客户端，
 > WSL 抓取到授权实验服务器固定端口的外层隧道流量。
 >
 > 普通网页/新闻/视频直连流量的当前流程已经迁移到 Windows 原生环境，
@@ -8,7 +8,12 @@
 
 ## 1. 当前范围
 
-当前已实现 `class-05-vmess-websocket-tls` 和 `class-06-vmess-xhttp-h2-tls`。其余10类在协议矩阵中仍是 `disabled`，不能仅修改标签后采集。
+协议矩阵中的 12 类均已启用。类别 5--10 由 Xray-core 执行；类别 11/12
+由官方 Hysteria 2 内核执行。本项目只生成上游内核的原生配置并管理容器，不自行实现
+VMess、VLESS、Trojan、Hysteria 2、QUIC、TLS 或 Salamander。
+
+类别 11 是 Hysteria 2 + QUIC + TLS，类别 12 在同一组合上启用 Salamander。
+首次正式采集前仍必须在实际 Linux/WSL 与服务器环境完成小规模连通性和 PCAP 纯度验证。
 
 旧的按 1 GiB 采集结果保存在 `/home/indole/formal_bak`，不混入本轮正式数据。新数据写入 `/home/indole/proxy-lab-data/formal`。
 
@@ -25,7 +30,10 @@
 - 活动流归零并持续空闲15秒后，封尾当前 PCAP，再创建下一份。
 - `--finish-timeout` 在流模式中只重复告警，不会截断活动流。
 
-该实时口径当前只支持外层 TCP。UDP、QUIC和 Hysteria2必须另行定义会话口径。
+类别 11/12 的 `--target-flows` 统计双向归一化后的外层 UDP 五元组。一个 Hysteria 2
+QUIC 连接可以复用许多内层 TCP/UDP 流，因此这个数字不等于网页连接数或 QUIC stream
+数量。正式采集 Hysteria 2 时优先使用 `--target-gib` 容量口径；只有实验设计明确要求
+外层 UDP 会话数，并会在样本间重建客户端连接时，才使用 `--target-flows`。
 
 ## 3. 流大小不作为采集停止条件
 
@@ -98,6 +106,65 @@ curl --fail --socks5-hostname 127.0.0.1:10808 \
 ```
 
 必须看到 `healthy: true` 和 `HTTP status: 200`。切回情况5时，在服务器重新执行同一组命令，只把 `--case` 改成 `class-05-vmess-websocket-tls`，再同步一次新生成的 `client.json`。
+
+### 配置并启动类别 11/12
+
+以下命令调用官方 Hysteria 2 容器，不包含自研协议实现。先在服务器项目目录锁定镜像、
+生成短期实验凭据并渲染配置：
+
+```bash
+lab hysteria2 lock-image
+lab hysteria2 init-secrets --server-name lab.invalid --validity-days 30
+lab hysteria2 render \
+  --case class-11-hysteria2-quic-tls \
+  --server-address YOUR_SERVER_IP \
+  --server-port 24443
+lab hysteria2 validate
+lab server start --case class-11-hysteria2-quic-tls
+lab server status --case class-11-hysteria2-quic-tls
+```
+
+采类别 12 时，把上面所有 `--case` 改为
+`class-12-hysteria2-quic-salamander-tls`。两类不能共用正在运行的服务端容器；切换前执行：
+
+```bash
+lab server stop --case class-11-hysteria2-quic-tls
+```
+
+将以下文件通过受控通道同步到客户端对应项目路径，不要提交到 Git：
+
+- `configs/locks/hysteria2.json`
+- `secrets/generated/hysteria2-client.yaml`
+
+客户端不需要服务端私钥。客户端项目目录中执行：
+
+```bash
+lab client start --case class-11-hysteria2-quic-tls \
+  --config secrets/generated/hysteria2-client.yaml
+lab client status --case class-11-hysteria2-quic-tls
+
+curl --fail --socks5-hostname 127.0.0.1:10808 \
+  --connect-timeout 10 --max-time 30 -o /dev/null \
+  -w 'HTTP status: %{http_code}\n' https://example.com/
+```
+
+防火墙和云安全组必须允许实验端口的 **UDP** 入站。只有客户端状态健康、HTTP 返回成功，
+且一份短试采 PCAP 中目标端口主要是预期服务器与客户端之间的 UDP，才开始正式采集。
+
+生命周期命令可用 `--case` 按矩阵选择内核，也可直接用
+`--core xray-core|hysteria2`。不传二者时读取 `configs/lab.yaml` 中的
+`runtime.default_core`，默认仍是 `xray-core`。
+
+Hysteria 2 推荐先按容量采集一份试样：
+
+```bash
+lab capture run \
+  --case class-11-hysteria2-quic-tls \
+  --server-ip YOUR_SERVER_IP \
+  --server-port 24443 \
+  --target-gib 0.1 \
+  --profile pilot-01
+```
 
 ## 5. 启动连续五份 PCAP
 

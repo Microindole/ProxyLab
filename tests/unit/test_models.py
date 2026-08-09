@@ -23,6 +23,8 @@ def test_accepts_complete_target_matrix() -> None:
         "class-08-vless-grpc-tls",
         "class-09-trojan-raw-tls",
         "class-10-trojan-websocket-tls",
+        "class-11-hysteria2-quic-tls",
+        "class-12-hysteria2-quic-salamander-tls",
     ]
 
 
@@ -51,6 +53,20 @@ def test_rejects_mislabeled_class_08() -> None:
     document = _matrix_document()
     document["cases"][7]["wrapper"] = "raw"  # type: ignore[index]
     with pytest.raises(ValidationError, match="class 8 must be"):
+        ProtocolMatrix.model_validate(document)
+
+
+def test_rejects_mislabeled_class_11() -> None:
+    document = _matrix_document()
+    document["cases"][10]["outer_transport"] = "tcp"  # type: ignore[index]
+    with pytest.raises(ValidationError, match="class 11 must be"):
+        ProtocolMatrix.model_validate(document)
+
+
+def test_rejects_mislabeled_class_12() -> None:
+    document = _matrix_document()
+    document["cases"][11]["obfs"] = None  # type: ignore[index]
+    with pytest.raises(ValidationError, match="class 12 must be"):
         ProtocolMatrix.model_validate(document)
 
 
