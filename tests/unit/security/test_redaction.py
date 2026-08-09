@@ -16,4 +16,3 @@ def test_redacts_uuid_and_password() -> None:
     result = redact(text)
     assert "correct-horse" not in result
     assert "123e4567" not in result
-

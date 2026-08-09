@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from pathlib import Path
 
-from proxy_traffic_lab.capture.experiment import run_udp_capture, run_web_capture
+from proxy_traffic_lab.capture.pilot import run_udp_capture, run_web_capture
 from proxy_traffic_lab.cli.commands.common import add_command, case_from_args
 from proxy_traffic_lab.cli.commands.registry import COMMANDS
 
@@ -85,5 +85,4 @@ def udp(args) -> int:
     )
     print(f"UDP pilot session written: {session}")
     return 0
-
 

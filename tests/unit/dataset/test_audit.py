@@ -63,4 +63,3 @@ def test_audit_rejects_unexpected_packets(tmp_path: Path, monkeypatch) -> None:
     assert report.passed is False
     assert report.metrics["unexpected_packet_count"] == 2
     assert report.checks["expected_tunnel_only"] is False
-

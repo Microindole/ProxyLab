@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from proxy_traffic_lab.capture.experiment import run_segmented_capture
+from proxy_traffic_lab.capture.segmented import run_segmented_capture
 from proxy_traffic_lab.cli.commands.common import add_command, case_from_args
 from proxy_traffic_lab.cli.commands.registry import COMMANDS
 from proxy_traffic_lab.common.errors import LabError
@@ -53,6 +53,5 @@ def capture_run(args) -> int:
     for session in sessions:
         print(f"  {session}")
     return 0
-
 
 

@@ -28,4 +28,3 @@ def test_udp_tunnel_filter() -> None:
 def test_rejects_invalid_filters(ip: str, port: int, transport: str) -> None:
     with pytest.raises(ValueError):
         tunnel_bpf(ip, port, transport)
-

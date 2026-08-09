@@ -4,15 +4,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from proxy_traffic_lab.capture import experiment
+from proxy_traffic_lab.capture import segmented
 from proxy_traffic_lab.capture import windows as capture_windows
-from proxy_traffic_lab.capture.experiment import _format_bytes
+from proxy_traffic_lab.capture.formatting import format_bytes
 from proxy_traffic_lab.cli.app import build_parser
 
 
 def test_format_bytes_uses_binary_units() -> None:
-    assert _format_bytes(1024**3) == "1.00 GiB"
-    assert _format_bytes(32 * 1024) == "32.00 KiB"
+    assert format_bytes(1024**3) == "1.00 GiB"
+    assert format_bytes(32 * 1024) == "32.00 KiB"
 
 
 def test_capture_run_defaults_to_one_gib() -> None:
@@ -123,7 +123,7 @@ def test_windows_plain_auto_uses_conversations_for_video_only() -> None:
 
 
 def test_windows_capture_helper_paths_follow_project_root() -> None:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     assert capture_windows._windows_helper_script("capture.ps1") == (
         root / "scripts" / "windows" / "capture.ps1"
     )
@@ -272,14 +272,14 @@ def test_segmented_capture_rotates_only_after_idle(monkeypatch) -> None:
         calls.append(kwargs["profile"])
         return Path(f"/{kwargs['profile']}"), "target_reached_and_traffic_idle"
 
-    monkeypatch.setattr(experiment, "_capture_size_segment", fake_segment)
+    monkeypatch.setattr(segmented, "capture_segment", fake_segment)
     monkeypatch.setattr(
-        experiment,
-        "_ensure_sudo_credentials",
+        segmented,
+        "ensure_sudo_credentials",
         lambda: sudo_refreshes.append(None),
     )
     case = SimpleNamespace(enabled=True, id="case-05", outer_transport="tcp")
-    sessions = experiment.run_segmented_capture(
+    sessions = segmented.run_segmented_capture(
         case=case,
         server_ip="203.0.113.10",
         server_port=24443,
@@ -300,10 +300,10 @@ def test_segmented_capture_does_not_split_an_active_flow(monkeypatch) -> None:
         calls.append(kwargs["profile"])
         return Path(f"/{kwargs['profile']}"), "target_reached_finish_timeout"
 
-    monkeypatch.setattr(experiment, "_capture_size_segment", fake_segment)
-    monkeypatch.setattr(experiment, "_ensure_sudo_credentials", lambda: None)
+    monkeypatch.setattr(segmented, "capture_segment", fake_segment)
+    monkeypatch.setattr(segmented, "ensure_sudo_credentials", lambda: None)
     case = SimpleNamespace(enabled=True, id="case-05", outer_transport="tcp")
-    sessions = experiment.run_segmented_capture(
+    sessions = segmented.run_segmented_capture(
         case=case,
         server_ip="203.0.113.10",
         server_port=24443,
@@ -323,10 +323,10 @@ def test_segmented_capture_accepts_udp_conversation_targets(monkeypatch) -> None
         calls.append(kwargs["profile"])
         return Path(f"/{kwargs['profile']}"), "target_udp_conversations_reached_and_traffic_idle"
 
-    monkeypatch.setattr(experiment, "_capture_size_segment", fake_segment)
-    monkeypatch.setattr(experiment, "_ensure_sudo_credentials", lambda: None)
+    monkeypatch.setattr(segmented, "capture_segment", fake_segment)
+    monkeypatch.setattr(segmented, "ensure_sudo_credentials", lambda: None)
     case = SimpleNamespace(enabled=True, id="class-11", outer_transport="udp")
-    sessions = experiment.run_segmented_capture(
+    sessions = segmented.run_segmented_capture(
         case=case,
         server_ip="203.0.113.10",
         server_port=24443,

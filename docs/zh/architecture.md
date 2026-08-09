@@ -32,6 +32,23 @@ src/proxy_traffic_lab/
 case，SOCKS5 UDP echo 工作负载只允许用于声明了 UDP 的 case。`dataset/audit.py`
 独立检查采集结果，不参与代理内核配置或容器生命周期。
 
+代理隧道抓包不再集中在单个 `capture/experiment.py` 中，职责拆分为：
+
+| 模块 | 单一职责 |
+| --- | --- |
+| `capture/segmented.py` | 校验并轮转一组正式采集分段 |
+| `capture/segment.py` | 运行一个分段的计数、排空和停止状态循环 |
+| `capture/pilot.py` | 编排一次 web/UDP workload 小规模试采 |
+| `capture/tcpdump.py` | tcpdump 启停、sudo 续期、路由接口与代理监听检查 |
+| `capture/formatting.py` | 终端字节数格式化 |
+| `dataset/records.py` | 写入正式/试采元数据、事件记录与摘要 manifest |
+
+不保留 `capture/experiment.py` 转发层，调用方直接依赖自己使用的职责模块。
+
+单元测试按同样的领域边界放在 `tests/unit/<domain>/`，当前包括 `capture`、`cli`、
+`configuration`、`dataset`、`lifecycle`、`protocols`、`security` 和 `traffic`；
+`tests/unit/` 根目录不直接堆放测试文件。
+
 依赖方向为：
 
 ```text

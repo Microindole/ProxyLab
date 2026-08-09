@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from proxy_traffic_lab.capture.experiment import _format_bytes
+from proxy_traffic_lab.capture.formatting import format_bytes
 from proxy_traffic_lab.capture.flow_tracker import PcapIpPacketTracker, PcapL4ConversationTracker, PcapTcpFlowTracker
 from proxy_traffic_lab.common.errors import LabError
 from proxy_traffic_lab.configuration.loader import load_plain_capture_config, project_root
@@ -323,8 +323,8 @@ def _render_windows_capture_progress(
             metric_line("pkt ipv6", ip_stats.ipv6_packets, packet_total_for_bar),
             metric_line("pkt ipv4", ip_stats.ipv4_packets, packet_total_for_bar),
             f"udp443 conv {ip_stats.udp_443_conversations}",
-            f"pcap size   {_format_bytes(size)}",
-            f"write rate  {_format_bytes(int(rate))}/s",
+            f"pcap size   {format_bytes(size)}",
+            f"write rate  {format_bytes(int(rate))}/s",
         ]
     )
 
@@ -575,7 +575,7 @@ def _capture_windows_ipv6_flow_segment(
     )
     print(
         f"Segment {segment_index}/{segment_count} stopped: {stop_reason}; "
-        f"final size {_format_bytes(final_size)}, flows {final_stats.total_flows}, "
+        f"final size {format_bytes(final_size)}, flows {final_stats.total_flows}, "
         f"active {final_stats.active_flows}\n"
         f"PCAP: {pcap_path}",
         flush=True,
