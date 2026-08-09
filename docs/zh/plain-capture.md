@@ -27,7 +27,7 @@ Windows 依赖：
 - `dumpcap.exe`，当前已支持 `D:\Wireshark\dumpcap.exe`
 - Python 3.12 虚拟环境：`D:\works\proxy-traffic-lab\.venv`
 
-启动 PowerShell：
+正式采集需要修改和恢复 Windows 防火墙策略，因此请启动**管理员 PowerShell**：
 
 ```powershell
 cd D:\works\proxy-traffic-lab
@@ -202,6 +202,7 @@ lab capture windows-ipv6 `
   --profile text-cctv-04 `
   --profile text-cctv-05 `
   --start-chrome `
+  --isolate-chrome-network `
   --disable-quic `
   --start-url "https://news.cctv.com/" `
   --progress-interval 2
@@ -221,6 +222,7 @@ lab capture windows-ipv6 `
   --profile text-163-04 `
   --profile text-163-05 `
   --start-chrome `
+  --isolate-chrome-network `
   --disable-quic `
   --start-url "https://www.163.com/news/" `
   --progress-interval 2
@@ -240,6 +242,7 @@ lab capture windows-ipv6 `
   --profile text-govcn-04 `
   --profile text-govcn-05 `
   --start-chrome `
+  --isolate-chrome-network `
   --disable-quic `
   --start-url "https://www.gov.cn/" `
   --progress-interval 2
@@ -273,6 +276,7 @@ lab capture windows-ipv6 `
   --profile video-bilibili-04 `
   --profile video-bilibili-05 `
   --start-chrome `
+  --isolate-chrome-network `
   --start-url "https://www.bilibili.com/" `
   --progress-interval 2
 ```
@@ -291,6 +295,7 @@ lab capture windows-ipv6 `
   --profile video-vqq-04 `
   --profile video-vqq-05 `
   --start-chrome `
+  --isolate-chrome-network `
   --start-url "https://v.qq.com/" `
   --progress-interval 2
 ```
@@ -309,6 +314,7 @@ lab capture windows-ipv6 `
   --profile video-ixigua-04 `
   --profile video-ixigua-05 `
   --start-chrome `
+  --isolate-chrome-network `
   --start-url "https://www.ixigua.com/" `
   --progress-interval 2
 ```

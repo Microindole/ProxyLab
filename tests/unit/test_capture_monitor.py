@@ -119,6 +119,23 @@ def test_windows_plain_auto_uses_conversations_for_video_only() -> None:
     )
 
 
+def test_windows_capture_helper_paths_follow_project_root() -> None:
+    root = Path(__file__).resolve().parents[2]
+    assert capture_windows._windows_helper_script("capture.ps1") == (
+        root / "scripts" / "windows" / "capture.ps1"
+    )
+    assert capture_windows._windows_helper_script("browser.ps1") == (
+        root / "scripts" / "windows" / "browser.ps1"
+    )
+    assert capture_windows._windows_helper_script("isolate.ps1") == (
+        root / "scripts" / "windows" / "isolate.ps1"
+    )
+
+
+def test_windows_progress_bar_uses_unicode_blocks() -> None:
+    assert capture_windows._progress_bar(value=1, total=2, width=4) == "██░░"
+
+
 def test_windows_plain_capture_continues_after_traffic_idle(monkeypatch) -> None:
     calls: list[str] = []
 

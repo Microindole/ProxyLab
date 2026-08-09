@@ -15,7 +15,7 @@ from pathlib import Path
 from proxy_traffic_lab.capture.experiment import _format_bytes
 from proxy_traffic_lab.capture.flow_tracker import PcapIpPacketTracker, PcapL4ConversationTracker, PcapTcpFlowTracker
 from proxy_traffic_lab.common.errors import LabError
-from proxy_traffic_lab.configuration.loader import load_plain_capture_config
+from proxy_traffic_lab.configuration.loader import load_plain_capture_config, project_root
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,10 +43,8 @@ class WindowsCaptureRequest:
 
 
 def execute_windows_capture(request: WindowsCaptureRequest) -> int:
-    root = Path(__file__).resolve().parents[3]
-    script = root / "scripts" / "windows" / "capture.ps1"
-    if not script.is_file():
-        raise LabError(f"missing helper script: {script}")
+    root = project_root()
+    script = _windows_helper_script("capture.ps1")
     if not request.list_interfaces and not request.interface:
         raise LabError(
             "missing --interface; first run: lab capture windows-ipv6 --list-interfaces"
@@ -273,7 +271,7 @@ def _progress_bar(
         total = 1
     ratio = max(0.0, min(value / total, 1.0))
     filled = int(round(ratio * width))
-    return "â" * filled + "â" * (width - filled)
+    return "█" * filled + "░" * (width - filled)
 
 
 def _render_windows_capture_progress(
@@ -649,10 +647,7 @@ def _find_windows_dumpcap_for_wsl() -> Path:
 
 
 def _start_windows_no_proxy_browser(*, start_url: str, disable_quic: bool) -> None:
-    root = Path(__file__).resolve().parents[4]
-    script = root / "scripts" / "windows" / "browser.ps1"
-    if not script.is_file():
-        raise LabError(f"missing helper script: {script}")
+    script = _windows_helper_script("browser.ps1")
     command = [
         "powershell.exe",
         "-NoProfile",
@@ -674,11 +669,15 @@ def _start_windows_no_proxy_browser(*, start_url: str, disable_quic: bool) -> No
         raise LabError("failed to start Windows no-proxy browser")
 
 
-def _set_windows_chrome_network_isolation(*, enable: bool) -> None:
-    root = Path(__file__).resolve().parents[4]
-    script = root / "scripts" / "windows" / "isolate.ps1"
+def _windows_helper_script(name: str) -> Path:
+    script = project_root() / "scripts" / "windows" / name
     if not script.is_file():
         raise LabError(f"missing helper script: {script}")
+    return script
+
+
+def _set_windows_chrome_network_isolation(*, enable: bool) -> None:
+    script = _windows_helper_script("isolate.ps1")
     action = "Enable" if enable else "Disable"
     script_for_display = _wslpath_to_windows(script)
     command = [
