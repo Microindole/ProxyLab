@@ -19,6 +19,8 @@
 | `capture run` | `cap r` |
 | `capture windows-ipv6` | `cap win6` |
 | `experiment web` | `exp w` |
+| `experiment udp` | `exp u` |
+| `dataset audit` | `ds a` |
 
 内核子命令也支持：`lock-image -> lock`、`build-image -> build`、
 `init-secrets -> init`、`render -> r`、`validate -> v`。
@@ -46,6 +48,9 @@ lab xr r -c class-05-vmess-websocket-tls -a 203.0.113.10 -p 443
 lab srv up -c class-05-vmess-websocket-tls
 lab cap r -c class-05-vmess-websocket-tls -a 203.0.113.10 -p 443 -n 3000
 lab cap win6 -l
+lab exp u -c class-02-shadowsocks-2022-udp -a 203.0.113.10 -p 24443 \
+  -H 198.51.100.20 -P 19000 -n 20
+lab ds a /data/session -a 203.0.113.10
 ```
 
 每个子命令的短参数以 `lab <命令> --help` 显示为准。

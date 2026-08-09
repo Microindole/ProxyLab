@@ -3,17 +3,10 @@ from __future__ import annotations
 import random
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any
 
 from proxy_traffic_lab.common.errors import ConfigurationError
-
-
-@dataclass(frozen=True)
-class WebTrafficResult:
-    attempted_pages: int
-    successful_pages: int
-    events: tuple[dict[str, Any], ...]
+from proxy_traffic_lab.traffic.models import WorkloadResult
 
 
 def generate_web_traffic(
@@ -23,7 +16,7 @@ def generate_web_traffic(
     seed: int,
     max_duration_seconds: int,
     max_pages: int,
-) -> WebTrafficResult:
+) -> WorkloadResult:
     """Drive a real Chromium process through the experiment SOCKS proxy."""
     if not urls:
         raise ConfigurationError("at least one --url is required")
@@ -96,8 +89,8 @@ def generate_web_traffic(
             context.close()
             browser.close()
 
-    return WebTrafficResult(
-        attempted_pages=len(events),
-        successful_pages=successes,
+    return WorkloadResult(
+        attempted=len(events),
+        successful=successes,
         events=tuple(events),
     )

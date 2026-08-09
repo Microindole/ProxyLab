@@ -78,7 +78,7 @@ cases:
     outer_transport: tcp
     transport: xhttp
     encryption: tls
-    parameters: {mode: h2}
+    parameters: {xhttp_mode: stream-up, http_version: h2}
     inner_networks: [tcp]
 
   - id: class-07-vless-raw-reality-vision

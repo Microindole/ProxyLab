@@ -119,6 +119,31 @@ lab client start --case class-01-shadowsocks-2022-tcp \
 lab client status --case class-01-shadowsocks-2022-tcp
 ```
 
+类别 2 不能使用上述 HTTP `curl` 或浏览器网页访问充当正式业务负载，因为它们不能证明
+内层 UDP 已通过 SOCKS5 UDP ASSOCIATE。先在你控制的另一台主机上启动 UDP echo 服务，
+并只允许实验代理服务端出口 IP 访问；然后在 **WSL** 进行小规模试采：
+
+```bash
+lab experiment udp \
+  --case class-02-shadowsocks-2022-udp \
+  --server-ip YOUR_PROXY_SERVER_IP \
+  --server-port 24443 \
+  --target-host YOUR_AUTHORIZED_UDP_ECHO_HOST \
+  --target-port 19000 \
+  --count 20 \
+  --payload-bytes 256 \
+  --output-root "$HOME/proxy-lab-data"
+```
+
+`--server-ip/--server-port` 是 WSL 抓取的 Shadowsocks 2022 外层 UDP 隧道；
+`--target-host/--target-port` 是隧道内部访问的授权 echo 服务。两组参数职责不同。
+命令不会默认访问公共 DNS、NTP 或其他第三方 UDP 服务。试采生成的元数据必须显示
+`inner_network=udp` 且 `successful > 0`。正式大批量采集前，还应按实验设计确定包数、
+负载大小和时间间隔，所有类别保持同一套可复现参数。
+
+类别 6 的标签语义拆分为 `xhttp_mode=stream-up` 和 `http_version=h2`。这与当前
+Xray 原生配置一致，只修正标签表达，不改变已经使用该原生配置采得的包行为。
+
 ### 类别 3/4：独立 ShadowsocksR-native 内核
 
 SSR 不属于 Xray 的 Shadowsocks 实现。本项目从固定的上游 Git commit 构建容器，
@@ -335,6 +360,25 @@ READY segment 2/5: sample-02
 出现新的 `READY` 后，再次运行同一条 PowerShell启动命令，开始下一份手动会话。五份都按这个循环操作。
 
 ## 7. 验收
+
+先对每个会话运行自动审计：
+
+```bash
+SESSION="$HOME/proxy-lab-data/formal/class-05-vmess-websocket-tls/sample-01/替换为会话目录"
+lab dataset audit "$SESSION" --server-ip YOUR_PROXY_SERVER_IP
+```
+
+短命令等价形式为：
+
+```bash
+lab ds a "$SESSION" -a YOUR_PROXY_SERVER_IP
+```
+
+退出码为 `0` 才表示当前自动门禁通过。审计会检查 PCAP 可读性、文件大小与摘要、
+manifest、case 对应的外层 TCP/UDP、服务器端口、意外数据包、流结束状态和内核丢包。
+旧会话没有 manifest 或完整抓包日志时会产生 warning；关键元数据缺失、包不可读、
+出现非目标隧道包或正式流边界不完整会失败。需要保留审计结果时使用
+`--output audit.json`。
 
 ```bash
 find "$HOME/proxy-lab-data/formal/class-05-vmess-websocket-tls" \

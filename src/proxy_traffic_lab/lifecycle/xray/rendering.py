@@ -37,7 +37,12 @@ def render_xray_case_server(
             render_vmess_xhttp_h2_tls_server,
         )
 
-        return render_vmess_xhttp_h2_tls_server(material, port=port)
+        return render_vmess_xhttp_h2_tls_server(
+            material,
+            port=port,
+            xhttp_mode=_required_parameter(case, "xhttp_mode"),
+            http_version=_required_parameter(case, "http_version"),
+        )
     if key == ("vless", "raw", "reality"):
         from proxy_traffic_lab.protocols.xray.vless import (
             render_vless_reality_vision_server,
@@ -109,6 +114,8 @@ def render_xray_case_client(
             server_address=server_address,
             server_port=server_port,
             socks_port=socks_port,
+            xhttp_mode=_required_parameter(case, "xhttp_mode"),
+            http_version=_required_parameter(case, "http_version"),
         )
     if key == ("vless", "raw", "reality"):
         from proxy_traffic_lab.protocols.xray.vless import (
@@ -156,5 +163,11 @@ def render_xray_case_client(
         )
     raise ConfigurationError(f"Xray renderer is not implemented for composition: {key}")
 
+
+def _required_parameter(case: ProtocolCase, name: str) -> str:
+    value = case.parameter(name)
+    if not isinstance(value, str) or not value:
+        raise ConfigurationError(f"{case.id} requires string parameter {name}")
+    return value
 
 

@@ -28,6 +28,10 @@ src/proxy_traffic_lab/
 └── traffic/         受控流量生成
 ```
 
+`traffic/registry.py` 按内层网络注册工作负载；网页工作负载只允许用于声明了 TCP 的
+case，SOCKS5 UDP echo 工作负载只允许用于声明了 UDP 的 case。`dataset/audit.py`
+独立检查采集结果，不参与代理内核配置或容器生命周期。
+
 依赖方向为：
 
 ```text

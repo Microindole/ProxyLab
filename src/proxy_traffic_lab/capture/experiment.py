@@ -9,7 +9,7 @@ import socket
 import subprocess
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -23,7 +23,8 @@ from proxy_traffic_lab.capture.flow_tracker import (
 from proxy_traffic_lab.common.errors import ConfigurationError
 from proxy_traffic_lab.configuration.models import ProtocolCase
 from proxy_traffic_lab.common.process import run_command
-from proxy_traffic_lab.traffic.playwright_web import generate_web_traffic
+from proxy_traffic_lab.traffic.models import WorkloadResult
+from proxy_traffic_lab.traffic.registry import resolve_workload
 
 
 _SUDO_REFRESH_INTERVAL_SECONDS = 60.0
@@ -451,8 +452,89 @@ def run_web_capture(
 ) -> Path:
     if not case.enabled:
         raise ConfigurationError(f"protocol case is disabled: {case.id}")
-    if "tcp" not in case.inner_networks:
-        raise ConfigurationError(f"web profile is not valid for {case.id}")
+    workload = resolve_workload("web", case)
+    return _run_workload_capture(
+        case=case,
+        server_ip=server_ip,
+        server_port=server_port,
+        proxy_server=proxy_server,
+        seed=seed,
+        output_root=output_root,
+        interface=interface,
+        workload_name=workload.name,
+        inner_network=workload.inner_network,
+        traffic_details={"browser": "chromium", "urls": list(urls)},
+        run=lambda: workload.runner(
+            proxy_server=proxy_server,
+            urls=urls,
+            seed=seed,
+            max_duration_seconds=max_duration_seconds,
+            max_pages=max_pages,
+        ),
+    )
+
+
+def run_udp_capture(
+    *,
+    case: ProtocolCase,
+    server_ip: str,
+    server_port: int,
+    proxy_server: str,
+    target_host: str,
+    target_port: int,
+    seed: int,
+    count: int,
+    payload_bytes: int,
+    timeout_seconds: float,
+    interval_seconds: float,
+    output_root: Path,
+    interface: str | None = None,
+) -> Path:
+    if not case.enabled:
+        raise ConfigurationError(f"protocol case is disabled: {case.id}")
+    workload = resolve_workload("udp", case)
+    return _run_workload_capture(
+        case=case,
+        server_ip=server_ip,
+        server_port=server_port,
+        proxy_server=proxy_server,
+        seed=seed,
+        output_root=output_root,
+        interface=interface,
+        workload_name=workload.name,
+        inner_network=workload.inner_network,
+        traffic_details={
+            "target_host": target_host,
+            "target_port": target_port,
+            "payload_bytes": payload_bytes,
+        },
+        run=lambda: workload.runner(
+            proxy_server=proxy_server,
+            target_host=target_host,
+            target_port=target_port,
+            seed=seed,
+            count=count,
+            payload_bytes=payload_bytes,
+            timeout_seconds=timeout_seconds,
+            interval_seconds=interval_seconds,
+        ),
+    )
+
+
+def _run_workload_capture(
+    *,
+    case: ProtocolCase,
+    server_ip: str,
+    server_port: int,
+    proxy_server: str,
+    seed: int,
+    output_root: Path,
+    interface: str | None,
+    workload_name: str,
+    inner_network: str,
+    traffic_details: dict[str, Any],
+    run: Callable[[], WorkloadResult],
+) -> Path:
     _require_proxy_listener(proxy_server)
     selected_interface = interface or _route_interface(server_ip)
     capture_filter = tunnel_bpf(server_ip, server_port, case.outer_transport)
@@ -476,13 +558,9 @@ def run_web_capture(
         if capture_process.poll() is not None:
             _, stderr = capture_process.communicate(timeout=2)
             raise ConfigurationError(f"tcpdump exited before traffic started: {stderr}")
-        result = generate_web_traffic(
-            proxy_server=proxy_server,
-            urls=urls,
-            seed=seed,
-            max_duration_seconds=max_duration_seconds,
-            max_pages=max_pages,
-        )
+        result = run()
+        if result.successful == 0:
+            raise ConfigurationError(f"{workload_name} workload produced no successful events")
     except Exception as exc:
         traffic_error = f"{type(exc).__name__}: {exc}"
         raise
@@ -505,7 +583,9 @@ def run_web_capture(
             started_at=started_at,
             ended_at=ended_at,
             seed=seed,
-            urls=urls,
+            workload_name=workload_name,
+            inner_network=inner_network,
+            traffic_details=traffic_details,
             result=result,
             capture_stderr=capture_stderr,
             traffic_error=traffic_error,
@@ -616,17 +696,19 @@ def _write_metadata(
     started_at: datetime,
     ended_at: datetime,
     seed: int,
-    urls: Sequence[str],
-    result: Any,
+    workload_name: str,
+    inner_network: str,
+    traffic_details: dict[str, Any],
+    result: WorkloadResult | None,
     capture_stderr: str,
     traffic_error: str | None,
 ) -> None:
     pcap_size = pcap_path.stat().st_size if pcap_path.is_file() else 0
     packet_count = _packet_count(pcap_path) if pcap_size else 0
     pcap_sha256 = _sha256(pcap_path) if pcap_size else None
-    successful_pages = result.successful_pages if result is not None else 0
+    successful = result.successful if result is not None else 0
     validation_status = (
-        "passed" if pcap_size > 24 and packet_count > 0 and successful_pages > 0 else "failed"
+        "passed" if pcap_size > 24 and packet_count > 0 and successful > 0 else "failed"
     )
     metadata = {
         "schema_version": "1.0.0",
@@ -639,8 +721,8 @@ def _write_metadata(
             "transport_wrapper": case.transport,
             "security": case.encryption,
             "flow": case.parameter("flow"),
-            "inner_network": "tcp",
-            "application_profile": "web",
+            "inner_network": inner_network,
+            "application_profile": workload_name,
         },
         "capture": {
             "side": "client",
@@ -657,22 +739,19 @@ def _write_metadata(
             "pcap_sha256": pcap_sha256,
         },
         "traffic": {
-            "generator": "playwright",
-            "browser": "chromium",
-            "profile": "web",
+            "generator": workload_name,
+            "profile": workload_name,
             "seed": seed,
-            "urls": list(urls),
-            "attempted_pages": result.attempted_pages if result is not None else 0,
-            "successful_pages": successful_pages,
+            **traffic_details,
+            "attempted": result.attempted if result is not None else 0,
+            "successful": successful,
         },
         "validation": {
             "status": validation_status,
             "proxy_connectivity": traffic_error is None,
             "traffic_error": traffic_error,
             "capture_log": capture_stderr[-2000:],
-            "notes": [
-                "pilot capture; full unexpected-destination audit is not implemented yet"
-            ],
+            "notes": ["pilot capture; run `lab dataset audit` before accepting it"],
         },
     }
     metadata_path = session_dir / "metadata.json"

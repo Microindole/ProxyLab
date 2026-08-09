@@ -78,10 +78,14 @@ def render_shadowsocks_2022_client(
                 "tag": "proxy",
                 "protocol": "shadowsocks",
                 "settings": {
-                    "address": address,
-                    "port": server_port,
-                    "method": SS2022_METHOD,
-                    "password": _ss2022_key(material, network),
+                    "servers": [
+                        {
+                            "address": address,
+                            "port": server_port,
+                            "method": SS2022_METHOD,
+                            "password": _ss2022_key(material, network),
+                        }
+                    ]
                 },
             },
             {"tag": "block", "protocol": "blackhole"},
@@ -100,4 +104,3 @@ def _ss2022_key(material: TlsMaterial, network: str) -> str:
 def _validate_network(network: str) -> None:
     if network not in {"tcp", "udp"}:
         raise ValueError("Shadowsocks network must be tcp or udp")
-

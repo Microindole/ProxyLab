@@ -5,6 +5,7 @@ from typing import Self
 import pytest
 
 from proxy_traffic_lab.common.errors import ConfigurationError
+from proxy_traffic_lab.configuration.loader import find_protocol_case
 from proxy_traffic_lab.encryptions.material import TlsMaterial
 from proxy_traffic_lab.protocols.xray.shadowsocks import (
     render_shadowsocks_2022_client,
@@ -75,7 +76,11 @@ def test_class_01_uses_xray_shadowsocks_2022_tcp() -> None:
     assert inbound["protocol"] == "shadowsocks"
     assert inbound["settings"]["method"] == "2022-blake3-aes-128-gcm"
     assert inbound["settings"]["network"] == "tcp"
-    assert outbound["settings"]["password"] == inbound["settings"]["password"]
+    server_entry = outbound["settings"]["servers"][0]
+    assert server_entry["address"] == "203.0.113.10"
+    assert server_entry["port"] == 24443
+    assert server_entry["method"] == inbound["settings"]["method"]
+    assert server_entry["password"] == inbound["settings"]["password"]
     assert client["inbounds"][0]["settings"]["udp"] is False
 
 
@@ -89,6 +94,10 @@ def test_class_02_uses_xray_shadowsocks_2022_udp() -> None:
     )
     assert server["inbounds"][0]["settings"]["network"] == "udp"
     assert client["inbounds"][0]["settings"]["udp"] is True
+    assert (
+        client["outbounds"][0]["settings"]["servers"][0]["method"]
+        == "2022-blake3-aes-128-gcm"
+    )
 
 
 def test_server_blocks_cloud_metadata() -> None:
@@ -134,6 +143,11 @@ def test_class_06_server_uses_vmess_xhttp_h2_tls() -> None:
     assert stream["xhttpSettings"]["path"].startswith("/xhttp/")
     assert stream["xhttpSettings"]["mode"] == "stream-up"
     assert stream["tlsSettings"]["alpn"] == ["h2"]
+
+
+def test_class_06_matrix_separates_xhttp_mode_from_http_version() -> None:
+    case = find_protocol_case("class-06-vmess-xhttp-h2-tls")
+    assert case.parameters == {"xhttp_mode": "stream-up", "http_version": "h2"}
 
 
 def test_class_06_client_matches_server_and_pins_certificate() -> None:

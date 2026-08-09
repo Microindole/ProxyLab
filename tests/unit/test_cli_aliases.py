@@ -30,3 +30,8 @@ def test_kernel_and_lifecycle_aliases_are_canonicalized() -> None:
     status = build_parser().parse_args(["srv", "st", "-k", "xray-core"])
     assert (render.command, render.xray_command) == ("xray", "render")
     assert (status.command, status.server_command) == ("server", "status")
+
+
+def test_dataset_audit_alias_is_canonicalized() -> None:
+    args = build_parser().parse_args(["ds", "a", "sample", "-a", "203.0.113.10"])
+    assert (args.command, args.dataset_command) == ("dataset", "audit")

@@ -124,11 +124,14 @@ def render_vmess_xhttp_h2_tls_server(
     material: TlsMaterial,
     *,
     port: int,
+    xhttp_mode: str = "stream-up",
+    http_version: str = "h2",
     certificate_container_path: str = "/run/secrets/xray/server.crt",
     private_key_container_path: str = "/run/secrets/xray/server.key",
 ) -> dict[str, Any]:
     """Render VMess over XHTTP/HTTP2 with TLS using Xray-core."""
     validate_port(port)
+    _validate_xhttp_h2(xhttp_mode=xhttp_mode, http_version=http_version)
     return {
         "log": {"loglevel": "warning", "access": "none"},
         "inbounds": [
@@ -152,12 +155,12 @@ def render_vmess_xhttp_h2_tls_server(
                     "xhttpSettings": {
                         "path": xhttp_path(material.client_id),
                         "host": material.server_name,
-                        "mode": "stream-up",
+                        "mode": xhttp_mode,
                     },
                     "tlsSettings": {
                         "rejectUnknownSni": True,
                         "minVersion": "1.3",
-                        "alpn": ["h2"],
+                        "alpn": [http_version],
                         "certificates": [
                             {
                                 "certificateFile": certificate_container_path,
@@ -182,9 +185,12 @@ def render_vmess_xhttp_h2_tls_client(
     server_address: str,
     server_port: int,
     socks_port: int = 10808,
+    xhttp_mode: str = "stream-up",
+    http_version: str = "h2",
 ) -> dict[str, Any]:
     validate_port(server_port)
     validate_port(socks_port)
+    _validate_xhttp_h2(xhttp_mode=xhttp_mode, http_version=http_version)
     normalized_server_address = normalize_server_address(server_address)
     return {
         "log": {"loglevel": "warning", "access": "none"},
@@ -212,12 +218,12 @@ def render_vmess_xhttp_h2_tls_client(
                     "xhttpSettings": {
                         "path": xhttp_path(material.client_id),
                         "host": material.server_name,
-                        "mode": "stream-up",
+                        "mode": xhttp_mode,
                     },
                     "tlsSettings": {
                         "serverName": material.server_name,
                         "fingerprint": "chrome",
-                        "alpn": ["h2"],
+                        "alpn": [http_version],
                         "pinnedPeerCertSha256": material.certificate_sha256,
                     },
                 },
@@ -226,3 +232,9 @@ def render_vmess_xhttp_h2_tls_client(
         ],
     }
 
+
+def _validate_xhttp_h2(*, xhttp_mode: str, http_version: str) -> None:
+    if xhttp_mode != "stream-up":
+        raise ValueError("this target requires XHTTP mode stream-up")
+    if http_version != "h2":
+        raise ValueError("this target requires HTTP/2 TLS ALPN h2")
