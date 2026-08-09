@@ -8,13 +8,14 @@ from proxy_traffic_lab.cli.commands.registry import COMMANDS, CommandRegistry
 def _modules():
     from proxy_traffic_lab.cli.commands import (
         capture,
+        extras,
         kernel,
         diagnostics,
         experiment,
         lifecycle,
     )
 
-    return diagnostics, kernel, lifecycle, capture, experiment
+    return diagnostics, kernel, lifecycle, capture, experiment, extras
 
 
 def register_command_parsers(subcommands: Any) -> None:
@@ -33,6 +34,4 @@ __all__ = [
     "load_command_modules",
     "register_command_parsers",
 ]
-
-
 
