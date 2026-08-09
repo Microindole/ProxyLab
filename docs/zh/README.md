@@ -6,7 +6,7 @@
 
 - [从 0 构建与开发环境](build.md)：Windows/WSL 安装、验证、Makefile 用途和脚本目录说明。
 - [普通网站采集](plain-capture.md)：Windows 普通网页、AI 聊天和视频流量采集。
-- [代理隧道采集](proxy-capture.md)：类别 5/6 的授权实验隧道流量采集。
+- [代理隧道采集](proxy-capture.md)：12 类授权实验隧道流量的内核配置与采集。
 - [历史容量分段流程](legacy-size-capture.md)：旧的按文件大小分段流程，仅作历史参考。
 
 英文概览见 [English documentation](../en/README.md)。

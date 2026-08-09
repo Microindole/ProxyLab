@@ -30,6 +30,8 @@ def resolve_runtime_core(
             return RuntimeCore.XRAY_CORE
         if implementation == "hysteria2":
             return RuntimeCore.HYSTERIA2
+        if implementation == "shadowsocksr-native":
+            return RuntimeCore.SHADOWSOCKSR_NATIVE
         raise ValueError(
             f"{implementation} has config rendering but no managed container runtime"
         )
@@ -41,7 +43,11 @@ def start_server(core: RuntimeCore, project_root: Path) -> str:
         from proxy_traffic_lab.providers.xray import start_server_container
 
         return start_server_container(project_root)
-    from proxy_traffic_lab.providers.hysteria2 import start_server_container
+    if core == RuntimeCore.HYSTERIA2:
+        from proxy_traffic_lab.providers.hysteria2 import start_server_container
+
+        return start_server_container(project_root)
+    from proxy_traffic_lab.providers.shadowsocksr_native import start_server_container
 
     return start_server_container(project_root)
 
@@ -53,9 +59,13 @@ def server_status(core: RuntimeCore, project_root: Path) -> dict[str, object]:
         result = xray_status(project_root)
         result.setdefault("core", RuntimeCore.XRAY_CORE.value)
         return result
-    from proxy_traffic_lab.providers.hysteria2 import server_status as hysteria_status
+    if core == RuntimeCore.HYSTERIA2:
+        from proxy_traffic_lab.providers.hysteria2 import server_status as hysteria_status
 
-    return hysteria_status(project_root)
+        return hysteria_status(project_root)
+    from proxy_traffic_lab.providers.shadowsocksr_native import server_status as ssr_status
+
+    return ssr_status(project_root)
 
 
 def server_logs(core: RuntimeCore, *, tail: int) -> str:
@@ -63,9 +73,13 @@ def server_logs(core: RuntimeCore, *, tail: int) -> str:
         from proxy_traffic_lab.providers.xray import server_logs as xray_logs
 
         return xray_logs(tail=tail)
-    from proxy_traffic_lab.providers.hysteria2 import server_logs as hysteria_logs
+    if core == RuntimeCore.HYSTERIA2:
+        from proxy_traffic_lab.providers.hysteria2 import server_logs as hysteria_logs
 
-    return hysteria_logs(tail=tail)
+        return hysteria_logs(tail=tail)
+    from proxy_traffic_lab.providers.shadowsocksr_native import server_logs as ssr_logs
+
+    return ssr_logs(tail=tail)
 
 
 def stop_server(core: RuntimeCore) -> str:
@@ -73,7 +87,11 @@ def stop_server(core: RuntimeCore) -> str:
         from proxy_traffic_lab.providers.xray import stop_server_container
 
         return stop_server_container()
-    from proxy_traffic_lab.providers.hysteria2 import stop_server_container
+    if core == RuntimeCore.HYSTERIA2:
+        from proxy_traffic_lab.providers.hysteria2 import stop_server_container
+
+        return stop_server_container()
+    from proxy_traffic_lab.providers.shadowsocksr_native import stop_server_container
 
     return stop_server_container()
 
@@ -86,7 +104,11 @@ def start_client(
 
         path = config_path or Path("~/proxy-lab-client/client.json")
         return start_client_container(path)
-    from proxy_traffic_lab.providers.hysteria2 import start_client_container
+    if core == RuntimeCore.HYSTERIA2:
+        from proxy_traffic_lab.providers.hysteria2 import start_client_container
+
+        return start_client_container(project_root, config_path)
+    from proxy_traffic_lab.providers.shadowsocksr_native import start_client_container
 
     return start_client_container(project_root, config_path)
 
@@ -98,9 +120,13 @@ def client_status(core: RuntimeCore, *, socks_port: int) -> dict[str, object]:
         result = xray_status(socks_port=socks_port)
         result.setdefault("core", RuntimeCore.XRAY_CORE.value)
         return result
-    from proxy_traffic_lab.providers.hysteria2 import client_status as hysteria_status
+    if core == RuntimeCore.HYSTERIA2:
+        from proxy_traffic_lab.providers.hysteria2 import client_status as hysteria_status
 
-    return hysteria_status(socks_port=socks_port)
+        return hysteria_status(socks_port=socks_port)
+    from proxy_traffic_lab.providers.shadowsocksr_native import client_status as ssr_status
+
+    return ssr_status(socks_port=socks_port)
 
 
 def client_logs(core: RuntimeCore, *, tail: int) -> str:
@@ -108,9 +134,13 @@ def client_logs(core: RuntimeCore, *, tail: int) -> str:
         from proxy_traffic_lab.providers.xray import client_logs as xray_logs
 
         return xray_logs(tail=tail)
-    from proxy_traffic_lab.providers.hysteria2 import client_logs as hysteria_logs
+    if core == RuntimeCore.HYSTERIA2:
+        from proxy_traffic_lab.providers.hysteria2 import client_logs as hysteria_logs
 
-    return hysteria_logs(tail=tail)
+        return hysteria_logs(tail=tail)
+    from proxy_traffic_lab.providers.shadowsocksr_native import client_logs as ssr_logs
+
+    return ssr_logs(tail=tail)
 
 
 def stop_client(core: RuntimeCore) -> str:
@@ -118,6 +148,10 @@ def stop_client(core: RuntimeCore) -> str:
         from proxy_traffic_lab.providers.xray import stop_client_container
 
         return stop_client_container()
-    from proxy_traffic_lab.providers.hysteria2 import stop_client_container
+    if core == RuntimeCore.HYSTERIA2:
+        from proxy_traffic_lab.providers.hysteria2 import stop_client_container
+
+        return stop_client_container()
+    from proxy_traffic_lab.providers.shadowsocksr_native import stop_client_container
 
     return stop_client_container()

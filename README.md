@@ -25,6 +25,11 @@ English version: [Project overview](docs/en/README.md)
 
 协议实现依赖已有开源实现；本项目不自行实现代理协议。
 
+`providers` 按上游执行内核组织，而不是按协议名称组织。Xray-core provider 同时承载
+Shadowsocks 2022、VMess、VLESS 和 Trojan；SSR 使用独立的 ShadowsocksR-native
+provider；Hysteria 2 使用官方 Hysteria 2 provider。具体映射见
+[Provider boundary](src/proxy_traffic_lab/providers/README.md)。
+
 ## 文档导航
 
 - [从 0 构建与开发环境](docs/zh/build.md)：Windows/WSL 安装、验证、Makefile 用途和脚本目录说明。

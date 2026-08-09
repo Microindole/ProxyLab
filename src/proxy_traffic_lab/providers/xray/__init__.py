@@ -36,6 +36,10 @@ from proxy_traffic_lab.providers.xray.cases_trojan import (
     render_trojan_websocket_tls_client,
     render_trojan_websocket_tls_server,
 )
+from proxy_traffic_lab.providers.xray.cases_shadowsocks import (
+    render_shadowsocks_2022_client,
+    render_shadowsocks_2022_server,
+)
 from proxy_traffic_lab.providers.xray.cases_vless import (
     render_vless_grpc_tls_client,
     render_vless_grpc_tls_server,
@@ -74,6 +78,8 @@ __all__ = [
     "render_trojan_raw_tls_server",
     "render_trojan_websocket_tls_client",
     "render_trojan_websocket_tls_server",
+    "render_shadowsocks_2022_client",
+    "render_shadowsocks_2022_server",
     "render_vmess_websocket_tls_client",
     "render_vmess_websocket_tls_server",
     "render_vmess_xhttp_h2_tls_client",

@@ -17,6 +17,8 @@ from proxy_traffic_lab.providers.xray import (
     render_trojan_raw_tls_server,
     render_trojan_websocket_tls_client,
     render_trojan_websocket_tls_server,
+    render_shadowsocks_2022_client,
+    render_shadowsocks_2022_server,
     render_vless_tls_client,
     render_vless_tls_server,
     render_vmess_websocket_tls_client,
@@ -49,6 +51,35 @@ def test_server_config_keeps_layers_explicit() -> None:
     assert inbound["settings"]["decryption"] == "none"
     assert inbound["streamSettings"]["method"] == "raw"
     assert inbound["streamSettings"]["security"] == "tls"
+
+
+def test_class_01_uses_xray_shadowsocks_2022_tcp() -> None:
+    server = render_shadowsocks_2022_server(_material(), port=24443, network="tcp")
+    client = render_shadowsocks_2022_client(
+        _material(),
+        server_address="203.0.113.10",
+        server_port=24443,
+        network="tcp",
+    )
+    inbound = server["inbounds"][0]
+    outbound = client["outbounds"][0]
+    assert inbound["protocol"] == "shadowsocks"
+    assert inbound["settings"]["method"] == "2022-blake3-aes-128-gcm"
+    assert inbound["settings"]["network"] == "tcp"
+    assert outbound["settings"]["password"] == inbound["settings"]["password"]
+    assert client["inbounds"][0]["settings"]["udp"] is False
+
+
+def test_class_02_uses_xray_shadowsocks_2022_udp() -> None:
+    server = render_shadowsocks_2022_server(_material(), port=24443, network="udp")
+    client = render_shadowsocks_2022_client(
+        _material(),
+        server_address="203.0.113.10",
+        server_port=24443,
+        network="udp",
+    )
+    assert server["inbounds"][0]["settings"]["network"] == "udp"
+    assert client["inbounds"][0]["settings"]["udp"] is True
 
 
 def test_server_blocks_cloud_metadata() -> None:

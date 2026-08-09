@@ -20,6 +20,7 @@ class HostRole(StrEnum):
 class RuntimeCore(StrEnum):
     XRAY_CORE = "xray-core"
     HYSTERIA2 = "hysteria2"
+    SHADOWSOCKSR_NATIVE = "shadowsocksr-native"
 
 
 class Limits(StrictModel):
@@ -62,12 +63,8 @@ class ProtocolCase(StrictModel):
     protocol: Literal[
         "vless", "vmess", "trojan", "shadowsocks", "shadowsocksr", "hysteria2"
     ]
-    client: Literal[
-        "xray", "sing-box", "shadowsocks-rust", "shadowsocksr-libev", "hysteria2"
-    ]
-    server: Literal[
-        "xray", "sing-box", "shadowsocks-rust", "shadowsocksr-libev", "hysteria2"
-    ]
+    client: Literal["xray", "shadowsocksr-native", "hysteria2"]
+    server: Literal["xray", "shadowsocksr-native", "hysteria2"]
     outer_transport: Literal["tcp", "udp"]
     wrapper: Literal["raw", "websocket", "xhttp", "grpc", "quic"]
     security: Literal["none", "tls", "reality", "shadowsocks-2022"]
@@ -111,6 +108,34 @@ class ProtocolCase(StrictModel):
             )
             if not expected:
                 raise ValueError("class 5 must be VMess + WebSocket + TLS on Xray")
+        if self.dataset_class in {1, 2}:
+            expected = (
+                self.protocol == "shadowsocks"
+                and self.client == "xray"
+                and self.server == "xray"
+                and self.outer_transport == ("tcp" if self.dataset_class == 1 else "udp")
+                and self.wrapper == "raw"
+                and self.security == "shadowsocks-2022"
+                and self.cipher == "2022-blake3-aes-128-gcm"
+            )
+            if not expected:
+                raise ValueError("classes 1/2 must use Xray Shadowsocks 2022")
+        if self.dataset_class in {3, 4}:
+            expected_protocol = (
+                "auth_aes128_md5" if self.dataset_class == 3 else "auth_aes128_sha1"
+            )
+            expected = (
+                self.protocol == "shadowsocksr"
+                and self.client == "shadowsocksr-native"
+                and self.server == "shadowsocksr-native"
+                and self.outer_transport == "tcp"
+                and self.wrapper == "raw"
+                and self.cipher == "aes-256-cfb"
+                and self.protocol_plugin == expected_protocol
+                and self.obfs == "tls1.2_ticket_auth"
+            )
+            if not expected:
+                raise ValueError("classes 3/4 must use ShadowsocksR-native")
         if self.dataset_class == 6:
             expected = (
                 self.protocol == "vmess"

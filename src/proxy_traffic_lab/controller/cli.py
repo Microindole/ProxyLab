@@ -29,12 +29,18 @@ from proxy_traffic_lab.providers.xray import (
     validate_server_config_with_container,
     write_private_json,
 )
-from proxy_traffic_lab.providers.native_configs import write_native_case
 from proxy_traffic_lab.providers import runtime as managed_runtime
 from proxy_traffic_lab.providers.hysteria2 import (
     lock_official_image as lock_hysteria2_image,
     validate_generated_configs as validate_hysteria2_configs,
     write_hysteria2_case,
+)
+from proxy_traffic_lab.providers.shadowsocksr_native import (
+    build_pinned_image as build_shadowsocksr_image,
+    create_identity as create_shadowsocksr_identity,
+    load_identity as load_shadowsocksr_identity,
+    validate_generated_configs as validate_shadowsocksr_configs,
+    write_case as write_shadowsocksr_case,
 )
 
 
@@ -81,6 +87,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="vless-tcp-tls",
         choices=[
             "vless-tcp-tls",
+            "class-01-shadowsocks-2022-tcp",
+            "class-02-shadowsocks-2022-udp",
             "class-05-vmess-websocket-tls",
             "class-06-vmess-xhttp-h2-tls",
             "class-07-vless-raw-reality-vision",
@@ -129,26 +137,35 @@ def build_parser() -> argparse.ArgumentParser:
         "validate", help="validate generated YAML and pinned upstream image"
     )
 
-    native = subcommands.add_parser(
-        "native", help="render configs for non-Xray protocol implementations"
+    shadowsocksr = subcommands.add_parser(
+        "shadowsocksr", help="ShadowsocksR-native upstream-core operations"
     )
-    native_subcommands = native.add_subparsers(dest="native_command", required=True)
-    native_render = native_subcommands.add_parser(
-        "render", help="render Shadowsocks/SSR configs for existing implementations"
+    shadowsocksr_subcommands = shadowsocksr.add_subparsers(
+        dest="shadowsocksr_command", required=True
     )
-    native_render.add_argument(
+    shadowsocksr_subcommands.add_parser(
+        "build-image", help="build and ID-lock the source-pinned upstream core"
+    )
+    shadowsocksr_subcommands.add_parser(
+        "init-secrets", help="create an ignored ShadowsocksR password"
+    )
+    shadowsocksr_render = shadowsocksr_subcommands.add_parser(
+        "render", help="render upstream ShadowsocksR-native JSON"
+    )
+    shadowsocksr_render.add_argument(
         "--case",
         required=True,
         choices=[
-            "class-01-shadowsocks-2022-tcp",
-            "class-02-shadowsocks-2022-udp",
             "class-03-ssr-auth-aes128-md5",
             "class-04-ssr-auth-aes128-sha1",
         ],
     )
-    native_render.add_argument("--server-address", required=True)
-    native_render.add_argument("--server-port", type=int, required=True)
-    native_render.add_argument("--socks-port", type=int, default=10808)
+    shadowsocksr_render.add_argument("--server-address", required=True)
+    shadowsocksr_render.add_argument("--server-port", type=int, required=True)
+    shadowsocksr_render.add_argument("--socks-port", type=int, default=10808)
+    shadowsocksr_subcommands.add_parser(
+        "validate", help="validate configs and the pinned upstream image"
+    )
 
     server = subcommands.add_parser("server", help="proxy server lifecycle")
     server_subcommands = server.add_subparsers(dest="server_command", required=True)
@@ -407,21 +424,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(validate_hysteria2_configs(root))
             return 0
 
-        if args.command == "native" and args.native_command == "render":
+        if args.command == "shadowsocksr" and args.shadowsocksr_command == "build-image":
             root = Path(__file__).resolve().parents[3]
-            material = load_vless_tls_material(root / "secrets" / "xray")
-            server_path, client_path = write_native_case(
+            image = build_shadowsocksr_image(root)
+            print(f"Built source-pinned ShadowsocksR-native image: {image}")
+            return 0
+
+        if args.command == "shadowsocksr" and args.shadowsocksr_command == "init-secrets":
+            root = Path(__file__).resolve().parents[3]
+            create_shadowsocksr_identity(root / "secrets" / "shadowsocksr-native")
+            print("Created ignored ShadowsocksR credentials")
+            return 0
+
+        if args.command == "shadowsocksr" and args.shadowsocksr_command == "render":
+            root = Path(__file__).resolve().parents[3]
+            password = load_shadowsocksr_identity(
+                root / "secrets" / "shadowsocksr-native"
+            )
+            server_path, client_path = write_shadowsocksr_case(
                 root / "secrets" / "generated",
                 args.case,
+                password=password,
                 server_address=args.server_address,
                 server_port=args.server_port,
                 socks_port=args.socks_port,
-                seed=material.client_id,
             )
             print(
-                "Rendered ignored native configs under secrets/generated; "
+                "Rendered ignored ShadowsocksR-native configs; "
                 f"case={args.case}; server={server_path.name}; client={client_path.name}"
             )
+            return 0
+
+
+        if args.command == "shadowsocksr" and args.shadowsocksr_command == "validate":
+            root = Path(__file__).resolve().parents[3]
+            print(validate_shadowsocksr_configs(root))
             return 0
 
         if args.command == "server" and args.server_command == "start":
@@ -538,7 +575,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _add_runtime_selector(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--core",
-        choices=("xray-core", "hysteria2"),
+        choices=("xray-core", "hysteria2", "shadowsocksr-native"),
         help="upstream core; default comes from --case or configs/lab.yaml",
     )
     parser.add_argument(

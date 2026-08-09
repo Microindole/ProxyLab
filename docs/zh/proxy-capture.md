@@ -8,9 +8,10 @@
 
 ## 1. 当前范围
 
-协议矩阵中的 12 类均已启用。类别 5--10 由 Xray-core 执行；类别 11/12
-由官方 Hysteria 2 内核执行。本项目只生成上游内核的原生配置并管理容器，不自行实现
-VMess、VLESS、Trojan、Hysteria 2、QUIC、TLS 或 Salamander。
+协议矩阵中的 12 类均已启用。类别 1/2 和 5--10 由 Xray-core 执行，类别 3/4
+由源码提交固定的 ShadowsocksR-native 执行，类别 11/12 由官方 Hysteria 2 内核执行。
+本项目只生成上游内核的原生配置并管理容器，不自行实现
+Shadowsocks、ShadowsocksR、VMess、VLESS、Trojan、Hysteria 2、QUIC、TLS 或 Salamander。
 
 类别 11 是 Hysteria 2 + QUIC + TLS，类别 12 在同一组合上启用 Salamander。
 首次正式采集前仍必须在实际 Linux/WSL 与服务器环境完成小规模连通性和 PCAP 纯度验证。
@@ -64,6 +65,50 @@ curl \
 ```
 
 只有客户端 `healthy=true` 且 HTTP返回200才继续。检查完成后停止其他网络操作，再启动正式抓包。
+
+### 类别 1/2：Xray-core 的 Shadowsocks 2022
+
+Shadowsocks 是协议，Xray-core 是本矩阵选择的实现内核，因此配置仍由 `lab xray`
+生成，不存在单独的 Shadowsocks 进程：
+
+```bash
+lab xray init-secrets
+lab xray render \
+  --case class-01-shadowsocks-2022-tcp \
+  --server-address YOUR_SERVER_IP \
+  --server-port 24443
+lab xray validate
+lab server start --case class-01-shadowsocks-2022-tcp
+```
+
+类别 2 将 case 改为 `class-02-shadowsocks-2022-udp`，并确保服务器防火墙放行 UDP。
+
+### 类别 3/4：独立 ShadowsocksR-native 内核
+
+SSR 不属于 Xray 的 Shadowsocks 实现。本项目从固定的上游 Git commit 构建容器，
+避免依赖来源不明的第三方 SSR 镜像。SSR 内核较旧，只能在隔离、授权的实验环境使用。
+
+```bash
+lab shadowsocksr build-image
+lab shadowsocksr init-secrets
+lab shadowsocksr render \
+  --case class-03-ssr-auth-aes128-md5 \
+  --server-address YOUR_SERVER_IP \
+  --server-port 24443
+lab shadowsocksr validate
+lab server start --case class-03-ssr-auth-aes128-md5
+lab server status --case class-03-ssr-auth-aes128-md5
+```
+
+类别 4 将 case 改为 `class-04-ssr-auth-aes128-sha1`。客户端只同步
+`configs/locks/shadowsocksr-native.json` 和
+`secrets/generated/shadowsocksr-client.json`，然后执行：
+
+```bash
+lab client start --case class-03-ssr-auth-aes128-md5 \
+  --config secrets/generated/shadowsocksr-client.json
+lab client status --case class-03-ssr-auth-aes128-md5
+```
 
 ### 从情况5切换到情况6
 
@@ -152,7 +197,7 @@ curl --fail --socks5-hostname 127.0.0.1:10808 \
 且一份短试采 PCAP 中目标端口主要是预期服务器与客户端之间的 UDP，才开始正式采集。
 
 生命周期命令可用 `--case` 按矩阵选择内核，也可直接用
-`--core xray-core|hysteria2`。不传二者时读取 `configs/lab.yaml` 中的
+`--core xray-core|hysteria2|shadowsocksr-native`。不传二者时读取 `configs/lab.yaml` 中的
 `runtime.default_core`，默认仍是 `xray-core`。
 
 Hysteria 2 推荐先按容量采集一份试样：

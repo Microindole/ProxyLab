@@ -5,8 +5,8 @@ cases:
     dataset_class: 1
     enabled: true
     protocol: shadowsocks
-    client: sing-box
-    server: shadowsocks-rust
+    client: xray
+    server: xray
     outer_transport: tcp
     wrapper: raw
     security: shadowsocks-2022
@@ -17,8 +17,8 @@ cases:
     dataset_class: 2
     enabled: true
     protocol: shadowsocks
-    client: sing-box
-    server: shadowsocks-rust
+    client: xray
+    server: xray
     outer_transport: udp
     wrapper: raw
     security: shadowsocks-2022
@@ -29,8 +29,8 @@ cases:
     dataset_class: 3
     enabled: true
     protocol: shadowsocksr
-    client: shadowsocksr-libev
-    server: shadowsocksr-libev
+    client: shadowsocksr-native
+    server: shadowsocksr-native
     outer_transport: tcp
     wrapper: raw
     security: none
@@ -43,8 +43,8 @@ cases:
     dataset_class: 4
     enabled: true
     protocol: shadowsocksr
-    client: shadowsocksr-libev
-    server: shadowsocksr-libev
+    client: shadowsocksr-native
+    server: shadowsocksr-native
     outer_transport: tcp
     wrapper: raw
     security: none

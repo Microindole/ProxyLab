@@ -224,6 +224,19 @@ def render_xray_case_server(
     *,
     port: int,
 ) -> dict[str, Any]:
+    if case_id in {
+        "class-01-shadowsocks-2022-tcp",
+        "class-02-shadowsocks-2022-udp",
+    }:
+        from proxy_traffic_lab.providers.xray.cases_shadowsocks import (
+            render_shadowsocks_2022_server,
+        )
+
+        return render_shadowsocks_2022_server(
+            material,
+            port=port,
+            network="tcp" if case_id.startswith("class-01-") else "udp",
+        )
     if case_id == "vless-tcp-tls":
         from proxy_traffic_lab.providers.xray.cases_vless import render_vless_tls_server
 
@@ -275,6 +288,21 @@ def render_xray_case_client(
     server_port: int,
     socks_port: int = 10808,
 ) -> dict[str, Any]:
+    if case_id in {
+        "class-01-shadowsocks-2022-tcp",
+        "class-02-shadowsocks-2022-udp",
+    }:
+        from proxy_traffic_lab.providers.xray.cases_shadowsocks import (
+            render_shadowsocks_2022_client,
+        )
+
+        return render_shadowsocks_2022_client(
+            material,
+            server_address=server_address,
+            server_port=server_port,
+            socks_port=socks_port,
+            network="tcp" if case_id.startswith("class-01-") else "udp",
+        )
     if case_id == "vless-tcp-tls":
         from proxy_traffic_lab.providers.xray.cases_vless import render_vless_tls_client
 
@@ -687,9 +715,21 @@ def server_status(project_root: Path) -> dict[str, Any]:
     config_path = project_root / "secrets" / "generated" / "server.json"
     try:
         document = json.loads(config_path.read_text(encoding="utf-8"))
-        port = int(document["inbounds"][0]["port"])
+        inbound = document["inbounds"][0]
+        port = int(inbound["port"])
+        transport = str(inbound.get("settings", {}).get("network", "tcp"))
     except (OSError, json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError):
         result["detail"] = "cannot read generated server port"
+        return result
+    if transport == "udp":
+        result.update(
+            {
+                "healthy": True,
+                "port": port,
+                "transport": "udp",
+                "detail": "Xray process running; UDP has no connect-style health probe",
+            }
+        )
         return result
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=2):
@@ -698,7 +738,14 @@ def server_status(project_root: Path) -> dict[str, Any]:
         result["port"] = port
         result["detail"] = f"TCP listener unavailable: {type(exc).__name__}"
         return result
-    result.update({"healthy": True, "port": port, "detail": "TCP listener reachable"})
+    result.update(
+        {
+            "healthy": True,
+            "port": port,
+            "transport": "tcp",
+            "detail": "TCP listener reachable",
+        }
+    )
     return result
 
 
