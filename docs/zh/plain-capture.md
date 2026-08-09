@@ -140,6 +140,37 @@ pcap 9.77 MiB, rate 2.21 KiB/s
 而是等待 PCAP 写入速率低于空闲阈值并持续 `--idle-seconds` 后自动封尾。
 这是因为浏览器、HTTP/2 和网站 CDN 会长期保留 TCP 连接。
 
+### Chrome 网络隔离的恢复保证
+
+使用 `--isolate-chrome-network` 时，程序会暂时把 Windows 防火墙默认出站策略
+改为 `Block`，只放行专用 Chrome/Edge 和 DNS。必须从管理员 PowerShell 运行。
+
+隔离启用后同时存在三层恢复机制：
+
+1. 正常结束、普通异常或一次 `Ctrl+C` 时，由采集进程的 `finally` 恢复。
+2. 采集进程被结束或终端被关闭时，由独立看门狗发现进程消失并恢复。
+3. 采集期间关机、重启或断电时，由临时开机计划任务在下一次启动时恢复。
+
+开机恢复任务不是常驻服务。正常采集结束时会立即删除；只有检测到尚未恢复的
+隔离状态时才执行一次，并在成功恢复后自行删除。新采集若发现旧状态文件，会在
+确认旧采集进程已不存在后先恢复旧状态，再建立本次隔离；如果旧进程仍在运行，
+则拒绝抢占它的隔离会话。
+
+可随时查看状态：
+
+```powershell
+.\scripts\windows\isolate.ps1 -Action Status
+```
+
+手动恢复：
+
+```powershell
+.\scripts\windows\isolate.ps1 -Action Disable
+```
+
+正常空闲状态应显示 `Saved state does not exist`、
+`Startup recovery task exists: False`，并且没有 `ProxyTrafficLab` 放行规则。
+
 ## 5. 重要故障判断
 
 如果浏览器和手机热点都有流量，但进度里 `pcap` 和 `rate` 长时间不变，

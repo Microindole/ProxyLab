@@ -690,6 +690,8 @@ def _set_windows_chrome_network_isolation(*, enable: bool) -> None:
         "-Action",
         action,
     ]
+    if enable:
+        command.extend(["-OwnerProcessId", str(os.getpid())])
     result = subprocess.run(command, check=False, text=True)
     if result.returncode != 0:
         if enable:
