@@ -105,9 +105,14 @@ def prepare_read_permissions(*paths: Path) -> None:
     for path in paths:
         if not path.is_file():
             raise ConfigurationError(f"required container file is missing: {path}")
-        os.chmod(path, 0o640)
         if getattr(os, "geteuid", lambda: 1)() == 0:
+            os.chmod(path, 0o640)
             os.chown(path, 0, 65532)
-
+        else:
+            # Rootless/user-namespaced Docker can map container root to an
+            # unprivileged host UID.  Keep generated secrets out of git, but
+            # make bind-mounted config/key material readable to the pinned
+            # upstream container when the lab is run by a normal user.
+            os.chmod(path, 0o644)
 
 

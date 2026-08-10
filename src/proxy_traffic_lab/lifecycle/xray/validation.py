@@ -4,6 +4,7 @@ from pathlib import Path
 
 from proxy_traffic_lab.common.errors import ConfigurationError
 from proxy_traffic_lab.common.process import run_command
+from proxy_traffic_lab.lifecycle.docker import prepare_read_permissions
 from proxy_traffic_lab.lifecycle.xray.documents import validate_generated_client_address
 from proxy_traffic_lab.kernels.xray import load_image_lock
 
@@ -16,6 +17,7 @@ def validate_server_config_with_container(project_root: Path) -> str:
     for path in (config_path, certificate_path, private_key_path):
         if not path.is_file():
             raise ConfigurationError(f"required generated file is missing: {path}")
+    prepare_read_permissions(config_path, certificate_path, private_key_path)
     server_result = run_command(
         [
             "docker",
@@ -53,6 +55,7 @@ def validate_server_config_with_container(project_root: Path) -> str:
     client_path = project_root / "secrets" / "generated" / "client.json"
     if not client_path.is_file():
         raise ConfigurationError(f"required generated file is missing: {client_path}")
+    prepare_read_permissions(client_path)
     validate_generated_client_address(client_path)
     client_result = run_command(
         [
@@ -86,6 +89,5 @@ def validate_server_config_with_container(project_root: Path) -> str:
     server_detail = server_result.stdout or server_result.stderr
     client_detail = client_result.stdout or client_result.stderr
     return f"SERVER\n{server_detail}\nCLIENT\n{client_detail}"
-
 
 
