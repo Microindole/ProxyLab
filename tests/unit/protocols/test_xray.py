@@ -33,7 +33,10 @@ from proxy_traffic_lab.protocols.xray.vmess import (
 )
 import proxy_traffic_lab.lifecycle.xray.credentials as xray_credentials
 import proxy_traffic_lab.lifecycle.xray.server as xray_server
-from proxy_traffic_lab.lifecycle.xray.credentials import ensure_reality_material
+from proxy_traffic_lab.lifecycle.xray.credentials import (
+    ensure_reality_material,
+    generate_reality_key_pair,
+)
 from proxy_traffic_lab.lifecycle.xray.documents import validate_generated_client_address
 from proxy_traffic_lab.kernels.xray import (
     XRAY_OFFICIAL_IMAGE_TAG,
@@ -59,6 +62,7 @@ def test_server_config_keeps_layers_explicit() -> None:
     inbound = config["inbounds"][0]
     assert inbound["protocol"] == "vless"
     assert inbound["settings"]["decryption"] == "none"
+    assert inbound["streamSettings"]["network"] == "tcp"
     assert inbound["streamSettings"]["method"] == "raw"
     assert inbound["streamSettings"]["security"] == "tls"
 
@@ -172,6 +176,7 @@ def test_class_07_server_uses_vless_raw_reality_vision() -> None:
     assert inbound["settings"]["decryption"] == "none"
     assert client["id"] == _material().client_id
     assert client["flow"] == "xtls-rprx-vision"
+    assert stream["network"] == "tcp"
     assert stream["method"] == "raw"
     assert stream["security"] == "reality"
     assert stream["realitySettings"]["privateKey"] == "priv"
@@ -187,6 +192,7 @@ def test_class_07_client_matches_reality_server() -> None:
     stream = outbound["streamSettings"]
     assert outbound["protocol"] == "vless"
     assert outbound["settings"]["flow"] == "xtls-rprx-vision"
+    assert stream["network"] == "tcp"
     assert stream["method"] == "raw"
     assert stream["security"] == "reality"
     assert stream["realitySettings"]["publicKey"] == "pub"
@@ -200,6 +206,7 @@ def test_class_08_server_uses_vless_grpc_tls() -> None:
     stream = inbound["streamSettings"]
     assert inbound["protocol"] == "vless"
     assert inbound["settings"]["decryption"] == "none"
+    assert stream["network"] == "grpc"
     assert stream["method"] == "grpc"
     assert stream["security"] == "tls"
     assert stream["grpcSettings"]["serviceName"].startswith("grpc")
@@ -213,6 +220,7 @@ def test_class_08_client_matches_server_and_pins_certificate() -> None:
     )
     inbound_stream = server["inbounds"][0]["streamSettings"]
     outbound_stream = client["outbounds"][0]["streamSettings"]
+    assert outbound_stream["network"] == "grpc"
     assert outbound_stream["grpcSettings"] == inbound_stream["grpcSettings"]
     assert outbound_stream["tlsSettings"]["alpn"] == ["h2"]
     assert outbound_stream["tlsSettings"]["pinnedPeerCertSha256"] == "a" * 64
@@ -308,6 +316,65 @@ def test_ensure_reality_material_persists_generated_keys(
     assert material.reality_private_key == "generated-private"
     assert material.reality_public_key == "generated-public"
     assert persisted["reality_private_key"] == "generated-private"
+
+
+def test_generate_reality_key_pair_parses_stderr_camel_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run_command(*args: object, **kwargs: object) -> object:
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = "privateKey: generated-private\npublicKey: generated-public\n"
+
+        return Result()
+
+    monkeypatch.setattr(xray_credentials, "run_command", fake_run_command)
+
+    assert generate_reality_key_pair() == {
+        "private_key": "generated-private",
+        "public_key": "generated-public",
+    }
+
+
+def test_generate_reality_key_pair_accepts_xray_26_password_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run_command(*args: object, **kwargs: object) -> object:
+        class Result:
+            returncode = 0
+            stdout = (
+                "PrivateKey: generated-private\n"
+                "Password: generated-public\n"
+                "Hash32: ignored-hash\n"
+            )
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(xray_credentials, "run_command", fake_run_command)
+
+    assert generate_reality_key_pair() == {
+        "private_key": "generated-private",
+        "public_key": "generated-public",
+    }
+
+
+def test_generate_reality_key_pair_reports_unparsed_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run_command(*args: object, **kwargs: object) -> object:
+        class Result:
+            returncode = 0
+            stdout = "unexpected output"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(xray_credentials, "run_command", fake_run_command)
+
+    with pytest.raises(ConfigurationError, match="unexpected output"):
+        generate_reality_key_pair()
 
 
 def test_client_pins_certificate_without_allow_insecure() -> None:

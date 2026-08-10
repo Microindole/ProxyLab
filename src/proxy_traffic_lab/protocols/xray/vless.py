@@ -41,6 +41,7 @@ def render_vless_tls_server(
                     "decryption": "none",
                 },
                 "streamSettings": {
+                    "network": "tcp",
                     "method": "raw",
                     "security": "tls",
                     "tlsSettings": {
@@ -125,6 +126,7 @@ def render_vless_tls_client(
                     "encryption": "none",
                 },
                 "streamSettings": {
+                    "network": "tcp",
                     "method": "raw",
                     "security": "tls",
                     "tlsSettings": {
@@ -166,6 +168,7 @@ def render_vless_reality_vision_server(
                     "decryption": "none",
                 },
                 "streamSettings": {
+                    "network": "tcp",
                     "method": "raw",
                     "security": "reality",
                     "realitySettings": {
@@ -221,6 +224,7 @@ def render_vless_reality_vision_client(
                     "flow": "xtls-rprx-vision",
                 },
                 "streamSettings": {
+                    "network": "tcp",
                     "method": "raw",
                     "security": "reality",
                     "realitySettings": {
@@ -265,6 +269,7 @@ def render_vless_grpc_tls_server(
                     "decryption": "none",
                 },
                 "streamSettings": {
+                    "network": "grpc",
                     "method": "grpc",
                     "security": "tls",
                     "grpcSettings": {
@@ -325,6 +330,7 @@ def render_vless_grpc_tls_client(
                     "encryption": "none",
                 },
                 "streamSettings": {
+                    "network": "grpc",
                     "method": "grpc",
                     "security": "tls",
                     "grpcSettings": {

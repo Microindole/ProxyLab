@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 from pathlib import Path
 
@@ -59,17 +60,38 @@ def generate_reality_key_pair() -> dict[str, str]:
         raise ConfigurationError(
             "cannot generate Xray REALITY x25519 key pair: " + result.stderr
         )
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
     private_key: str | None = None
     public_key: str | None = None
-    for line in result.stdout.splitlines():
-        lowered = line.lower()
-        if "private" in lowered and ":" in line:
-            private_key = line.split(":", 1)[1].strip()
-        if "public" in lowered and ":" in line:
-            public_key = line.split(":", 1)[1].strip()
+    for line in output.splitlines():
+        private_match = re.search(
+            r"\bprivate\s*key\b\s*[:=]\s*(?P<value>\S+)",
+            line,
+            flags=re.IGNORECASE,
+        ) or re.search(
+            r"\bprivateKey\b\s*[:=]\s*(?P<value>\S+)",
+            line,
+            flags=re.IGNORECASE,
+        )
+        public_match = re.search(
+            r"\bpublic\s*key\b\s*[:=]\s*(?P<value>\S+)",
+            line,
+            flags=re.IGNORECASE,
+        ) or re.search(
+            r"\bpublicKey\b\s*[:=]\s*(?P<value>\S+)",
+            line,
+            flags=re.IGNORECASE,
+        ) or re.search(
+            r"\bpassword\b\s*[:=]\s*(?P<value>\S+)",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if private_match:
+            private_key = private_match.group("value").strip()
+        if public_match:
+            public_key = public_match.group("value").strip()
     if not private_key or not public_key:
-        raise ConfigurationError("cannot parse Xray x25519 key output")
+        detail = output.strip() or "<empty output>"
+        raise ConfigurationError(f"cannot parse Xray x25519 key output: {detail}")
     return {"private_key": private_key, "public_key": public_key}
-
-
 
