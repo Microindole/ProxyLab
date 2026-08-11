@@ -34,17 +34,8 @@ def xhttp_path(client_id: str) -> str:
     try:
         identifier = uuid.UUID(client_id)
     except (ValueError, TypeError) as exc:
-        raise ConfigurationError("invalid VMess client UUID") from exc
+        raise ConfigurationError("invalid XHTTP client UUID") from exc
     return f"/xhttp/{identifier.hex[:16]}"
-
-
-
-def grpc_service_name(client_id: str) -> str:
-    try:
-        identifier = uuid.UUID(client_id)
-    except (ValueError, TypeError) as exc:
-        raise ConfigurationError("invalid VLESS client UUID") from exc
-    return f"grpc{identifier.hex[:16]}"
 
 
 

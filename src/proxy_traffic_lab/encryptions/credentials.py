@@ -108,6 +108,8 @@ def load_tls_material(secrets_dir: Path) -> TlsMaterial:
         reality_short_id=identity.get("reality_short_id"),
         reality_server_name=identity.get("reality_server_name", "www.microsoft.com"),
         reality_dest=identity.get("reality_dest", "www.microsoft.com:443"),
+        vless_decryption=identity.get("vless_decryption"),
+        vless_encryption=identity.get("vless_encryption"),
     )
 
 

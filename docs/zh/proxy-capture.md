@@ -144,6 +144,43 @@ lab experiment udp \
 类别 6 的标签语义拆分为 `xhttp_mode=stream-up` 和 `http_version=h2`。这与当前
 Xray 原生配置一致，只修正标签表达，不改变已经使用该原生配置采得的包行为。
 
+### 类别 7/8：VLESS + REALITY + Vision
+
+两类都由官方 Xray-core 执行，不是项目自行实现 VLESS：
+
+- 类别 7：`VLESS + RAW + REALITY + Vision`。
+- 类别 8：`VLESS Encryption + XHTTP(stream-up) + REALITY + Vision`。
+
+类别 8 已由旧的 `VLESS + gRPC + TLS` 更新为 Xray 当前的 XHTTP 组合，并使用
+`xray vlessenc` 生成、持久化服务端 decryption 与客户端 encryption 参数。项目不显式
+改写 `xmux`，使用 Xray 上游默认连接管理策略，避免为了凑外层连接数而制造不真实流量。
+旧的 `class-08-vless-grpc-tls` PCAP 仍然只能按旧类别解释，不能重命名为新类别 8。
+
+在 **Linux 实验服务器** 切换类别 8：
+
+```bash
+cd ~/dev/ProxyLab
+. .venv/bin/activate
+
+CASE=class-08-vless-xhttp-reality-vision
+SERVER_IP=YOUR_SERVER_IP
+
+lab server stop || true
+lab xray render --case "$CASE" --server-address "$SERVER_IP" --server-port 24443
+lab xray validate
+lab server start --case "$CASE"
+lab server status --case "$CASE"
+```
+
+把新生成的 `secrets/generated/client.json` 同步到 WSL 后，在 **WSL** 重启客户端。
+同步和重启步骤与其他 Xray 类别相同，但 `--case` 必须使用新 ID。启动前可用 `jq`
+确认 `protocol=vless`、`method=xhttp`、`security=reality`、`mode=stream-up`，且
+`flow=xtls-rprx-vision`。
+
+XHTTP 会复用并轮换有限数量的外层连接，所以网页活动增长不等于外层 TCP 五元组同比
+增长。需要固定外层字节量时用 `--target-gib`；需要研究外层连接行为时才用
+`--target-flows`。不要通过修改 XMUX 参数强行让它产生 3000 个连接。
+
 ### 类别 3/4：独立 ShadowsocksR-native 内核
 
 SSR 不属于 Xray 的 Shadowsocks 实现。本项目从固定的上游 Git commit 构建容器，

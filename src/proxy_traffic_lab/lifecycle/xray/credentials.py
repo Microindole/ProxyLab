@@ -4,6 +4,7 @@ import json
 import os
 import re
 import secrets
+from dataclasses import replace
 from pathlib import Path
 
 from proxy_traffic_lab.common.errors import ConfigurationError
@@ -37,18 +38,64 @@ def ensure_reality_material(
         encoding="utf-8",
     )
     os.chmod(identity_path, 0o600)
-    return TlsMaterial(
-        client_id=material.client_id,
-        server_name=material.server_name,
-        certificate_sha256=material.certificate_sha256,
-        certificate_path=material.certificate_path,
-        private_key_path=material.private_key_path,
+    return replace(
+        material,
         reality_private_key=identity["reality_private_key"],
         reality_public_key=identity["reality_public_key"],
         reality_short_id=identity["reality_short_id"],
         reality_server_name=identity["reality_server_name"],
         reality_dest=identity["reality_dest"],
     )
+
+
+def ensure_vless_encryption_material(
+    secrets_dir: Path,
+    material: TlsMaterial,
+) -> TlsMaterial:
+    """Ensure one persistent X25519-authenticated VLESS Encryption pair exists."""
+    if material.vless_decryption and material.vless_encryption:
+        return material
+
+    identity_path = secrets_dir / "identity.json"
+    try:
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigurationError(f"cannot update {identity_path}: {exc}") from exc
+
+    key_pair = generate_vless_encryption_pair()
+    identity["vless_decryption"] = key_pair["decryption"]
+    identity["vless_encryption"] = key_pair["encryption"]
+    identity_path.write_text(
+        json.dumps(identity, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.chmod(identity_path, 0o600)
+    return replace(
+        material,
+        vless_decryption=identity["vless_decryption"],
+        vless_encryption=identity["vless_encryption"],
+    )
+
+
+def generate_vless_encryption_pair() -> dict[str, str]:
+    result = run_command(
+        ["docker", "run", "--rm", XRAY_OFFICIAL_IMAGE_TAG, "vlessenc"],
+        timeout_seconds=30,
+    )
+    if result.returncode != 0:
+        raise ConfigurationError(
+            "cannot generate Xray VLESS Encryption pair: " + result.stderr
+        )
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    decryption_match = re.search(r'"decryption"\s*:\s*"(?P<value>[^"]+)"', output)
+    encryption_match = re.search(r'"encryption"\s*:\s*"(?P<value>[^"]+)"', output)
+    if not decryption_match or not encryption_match:
+        detail = output.strip() or "<empty output>"
+        raise ConfigurationError(f"cannot parse Xray vlessenc output: {detail}")
+    return {
+        "decryption": decryption_match.group("value"),
+        "encryption": encryption_match.group("value"),
+    }
 
 
 def generate_reality_key_pair() -> dict[str, str]:
@@ -94,4 +141,3 @@ def generate_reality_key_pair() -> dict[str, str]:
         detail = output.strip() or "<empty output>"
         raise ConfigurationError(f"cannot parse Xray x25519 key output: {detail}")
     return {"private_key": private_key, "public_key": public_key}
-

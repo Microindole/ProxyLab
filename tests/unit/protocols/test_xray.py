@@ -18,12 +18,12 @@ from proxy_traffic_lab.protocols.xray.trojan import (
     render_trojan_websocket_tls_server,
 )
 from proxy_traffic_lab.protocols.xray.vless import (
-    render_vless_grpc_tls_client,
-    render_vless_grpc_tls_server,
     render_vless_reality_vision_client,
     render_vless_reality_vision_server,
     render_vless_tls_client,
     render_vless_tls_server,
+    render_vless_xhttp_reality_vision_client,
+    render_vless_xhttp_reality_vision_server,
 )
 from proxy_traffic_lab.protocols.xray.vmess import (
     render_vmess_websocket_tls_client,
@@ -35,7 +35,9 @@ import proxy_traffic_lab.lifecycle.xray.credentials as xray_credentials
 import proxy_traffic_lab.lifecycle.xray.server as xray_server
 from proxy_traffic_lab.lifecycle.xray.credentials import (
     ensure_reality_material,
+    ensure_vless_encryption_material,
     generate_reality_key_pair,
+    generate_vless_encryption_pair,
 )
 from proxy_traffic_lab.lifecycle.xray.documents import validate_generated_client_address
 from proxy_traffic_lab.kernels.xray import (
@@ -54,6 +56,8 @@ def _material() -> TlsMaterial:
         reality_private_key="priv",
         reality_public_key="pub",
         reality_short_id="0123abcd",
+        vless_decryption="server-vless-decryption",
+        vless_encryption="client-vless-encryption",
     )
 
 
@@ -200,31 +204,36 @@ def test_class_07_client_matches_reality_server() -> None:
     assert stream["realitySettings"]["serverName"] == "www.microsoft.com"
 
 
-def test_class_08_server_uses_vless_grpc_tls() -> None:
-    config = render_vless_grpc_tls_server(_material(), port=24443)
+def test_class_08_server_uses_vless_xhttp_reality_vision() -> None:
+    config = render_vless_xhttp_reality_vision_server(_material(), port=24443)
     inbound = config["inbounds"][0]
     stream = inbound["streamSettings"]
     assert inbound["protocol"] == "vless"
-    assert inbound["settings"]["decryption"] == "none"
-    assert stream["network"] == "grpc"
-    assert stream["method"] == "grpc"
-    assert stream["security"] == "tls"
-    assert stream["grpcSettings"]["serviceName"].startswith("grpc")
-    assert stream["tlsSettings"]["alpn"] == ["h2"]
+    assert inbound["settings"]["clients"][0]["flow"] == "xtls-rprx-vision"
+    assert stream["network"] == "xhttp"
+    assert stream["method"] == "xhttp"
+    assert stream["security"] == "reality"
+    assert stream["xhttpSettings"]["path"].startswith("/xhttp/")
+    assert stream["xhttpSettings"]["mode"] == "stream-up"
+    assert "xmux" not in stream["xhttpSettings"]
+    assert stream["realitySettings"]["privateKey"] == "priv"
+    assert inbound["settings"]["decryption"] == "server-vless-decryption"
 
 
-def test_class_08_client_matches_server_and_pins_certificate() -> None:
-    server = render_vless_grpc_tls_server(_material(), port=24443)
-    client = render_vless_grpc_tls_client(
+def test_class_08_client_matches_xhttp_reality_server() -> None:
+    server = render_vless_xhttp_reality_vision_server(_material(), port=24443)
+    client = render_vless_xhttp_reality_vision_client(
         _material(), server_address="203.0.113.10", server_port=24443
     )
     inbound_stream = server["inbounds"][0]["streamSettings"]
-    outbound_stream = client["outbounds"][0]["streamSettings"]
-    assert outbound_stream["network"] == "grpc"
-    assert outbound_stream["grpcSettings"] == inbound_stream["grpcSettings"]
-    assert outbound_stream["tlsSettings"]["alpn"] == ["h2"]
-    assert outbound_stream["tlsSettings"]["pinnedPeerCertSha256"] == "a" * 64
-    assert "allowInsecure" not in outbound_stream["tlsSettings"]
+    outbound = client["outbounds"][0]
+    outbound_stream = outbound["streamSettings"]
+    assert outbound["settings"]["flow"] == "xtls-rprx-vision"
+    assert outbound["settings"]["encryption"] == "client-vless-encryption"
+    assert outbound_stream["network"] == "xhttp"
+    assert outbound_stream["xhttpSettings"] == inbound_stream["xhttpSettings"]
+    assert outbound_stream["realitySettings"]["publicKey"] == "pub"
+    assert outbound_stream["realitySettings"]["shortId"] == "0123abcd"
 
 
 def test_class_09_server_uses_trojan_raw_tls() -> None:
@@ -375,6 +384,68 @@ def test_generate_reality_key_pair_reports_unparsed_output(
 
     with pytest.raises(ConfigurationError, match="unexpected output"):
         generate_reality_key_pair()
+
+
+def test_ensure_vless_encryption_material_persists_x25519_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identity = {
+        "client_id": _material().client_id,
+        "server_name": "lab.invalid",
+        "certificate_sha256": "a" * 64,
+    }
+    (tmp_path / "identity.json").write_text(json.dumps(identity), encoding="utf-8")
+
+    def fake_generate() -> dict[str, str]:
+        return {"decryption": "server-dec", "encryption": "client-enc"}
+
+    monkeypatch.setattr(
+        xray_credentials,
+        "generate_vless_encryption_pair",
+        fake_generate,
+    )
+    material = ensure_vless_encryption_material(
+        tmp_path,
+        TlsMaterial(
+            client_id=_material().client_id,
+            server_name="lab.invalid",
+            certificate_sha256="a" * 64,
+            certificate_path=tmp_path / "server.crt",
+            private_key_path=tmp_path / "server.key",
+        ),
+    )
+
+    persisted = json.loads((tmp_path / "identity.json").read_text())
+    assert material.vless_decryption == "server-dec"
+    assert material.vless_encryption == "client-enc"
+    assert persisted["vless_decryption"] == "server-dec"
+    assert persisted["vless_encryption"] == "client-enc"
+
+
+def test_generate_vless_encryption_pair_selects_x25519_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run_command(*args: object, **kwargs: object) -> object:
+        class Result:
+            returncode = 0
+            stdout = (
+                'Authentication: X25519\n'
+                '"decryption": "server-dec"\n'
+                '"encryption": "client-enc"\n\n'
+                'Authentication: ML-KEM-768\n'
+                '"decryption": "server-pq"\n'
+                '"encryption": "client-pq"\n'
+            )
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(xray_credentials, "run_command", fake_run_command)
+    assert generate_vless_encryption_pair() == {
+        "decryption": "server-dec",
+        "encryption": "client-enc",
+    }
 
 
 def test_client_pins_certificate_without_allow_insecure() -> None:

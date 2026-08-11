@@ -93,15 +93,16 @@ cases:
     parameters: {flow: xtls-rprx-vision}
     inner_networks: [tcp]
 
-  - id: class-08-vless-grpc-tls
+  - id: class-08-vless-xhttp-reality-vision
     dataset_class: 8
     enabled: true
     protocol: vless
     client_core: xray-core
     server_core: xray-core
     outer_transport: tcp
-    transport: grpc
-    encryption: tls
+    transport: xhttp
+    encryption: reality
+    parameters: {xhttp_mode: stream-up, flow: xtls-rprx-vision, vless_encryption: true}
     inner_networks: [tcp]
 
   - id: class-09-trojan-raw-tls

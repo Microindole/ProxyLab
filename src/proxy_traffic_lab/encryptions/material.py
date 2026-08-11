@@ -16,3 +16,5 @@ class TlsMaterial:
     reality_short_id: str | None = None
     reality_server_name: str = "www.microsoft.com"
     reality_dest: str = "www.microsoft.com:443"
+    vless_decryption: str | None = None
+    vless_encryption: str | None = None

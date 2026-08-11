@@ -20,6 +20,8 @@ def _material() -> TlsMaterial:
         reality_private_key="private",
         reality_public_key="public",
         reality_short_id="0123abcd",
+        vless_decryption="server-vless-decryption",
+        vless_encryption="client-vless-encryption",
     )
 
 

@@ -49,12 +49,16 @@ def render_xray_case_server(
         )
 
         return render_vless_reality_vision_server(material, port=port)
-    if key == ("vless", "grpc", "tls"):
+    if key == ("vless", "xhttp", "reality"):
         from proxy_traffic_lab.protocols.xray.vless import (
-            render_vless_grpc_tls_server,
+            render_vless_xhttp_reality_vision_server,
         )
 
-        return render_vless_grpc_tls_server(material, port=port)
+        return render_vless_xhttp_reality_vision_server(
+            material,
+            port=port,
+            xhttp_mode=_required_parameter(case, "xhttp_mode"),
+        )
     if key == ("trojan", "raw", "tls"):
         from proxy_traffic_lab.protocols.xray.trojan import (
             render_trojan_raw_tls_server,
@@ -128,16 +132,17 @@ def render_xray_case_client(
             server_port=server_port,
             socks_port=socks_port,
         )
-    if key == ("vless", "grpc", "tls"):
+    if key == ("vless", "xhttp", "reality"):
         from proxy_traffic_lab.protocols.xray.vless import (
-            render_vless_grpc_tls_client,
+            render_vless_xhttp_reality_vision_client,
         )
 
-        return render_vless_grpc_tls_client(
+        return render_vless_xhttp_reality_vision_client(
             material,
             server_address=server_address,
             server_port=server_port,
             socks_port=socks_port,
+            xhttp_mode=_required_parameter(case, "xhttp_mode"),
         )
     if key == ("trojan", "raw", "tls"):
         from proxy_traffic_lab.protocols.xray.trojan import (
@@ -169,5 +174,4 @@ def _required_parameter(case: ProtocolCase, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise ConfigurationError(f"{case.id} requires string parameter {name}")
     return value
-
 

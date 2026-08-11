@@ -36,8 +36,9 @@ rules:
   - protocol: vless
     cores: [xray-core]
     outer_transports: [tcp]
-    transport: grpc
-    encryption: tls
+    transport: xhttp
+    encryption: reality
+    parameters: {xhttp_mode: [stream-up], flow: [xtls-rprx-vision], vless_encryption: [true]}
   - protocol: trojan
     cores: [xray-core]
     outer_transports: [tcp]

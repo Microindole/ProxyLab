@@ -8,11 +8,11 @@ from typing import Any
 from proxy_traffic_lab.common.errors import ConfigurationError
 from proxy_traffic_lab.encryptions.material import TlsMaterial
 from proxy_traffic_lab.protocols.xray.common import (
-    grpc_service_name,
     normalize_server_address,
     reality_values,
     server_routing,
     validate_port,
+    xhttp_path,
 )
 
 def render_vless_tls_server(
@@ -241,21 +241,23 @@ def render_vless_reality_vision_client(
     }
 
 
-def render_vless_grpc_tls_server(
+def render_vless_xhttp_reality_vision_server(
     material: TlsMaterial,
     *,
     port: int,
-    certificate_container_path: str = "/run/secrets/xray/server.crt",
-    private_key_container_path: str = "/run/secrets/xray/server.key",
+    xhttp_mode: str = "stream-up",
 ) -> dict[str, Any]:
-    """Render VLESS over gRPC with TLS using Xray-core."""
+    """Render VLESS over XHTTP with REALITY and Vision using Xray-core."""
     validate_port(port)
-    service_name = grpc_service_name(material.client_id)
+    _validate_xhttp_reality_mode(xhttp_mode)
+    private_key, _, short_id = reality_values(material)
+    if not material.vless_decryption:
+        raise ConfigurationError("VLESS Encryption decryption material is missing")
     return {
         "log": {"loglevel": "warning", "access": "none"},
         "inbounds": [
             {
-                "tag": "vless-grpc-tls-in",
+                "tag": "vless-xhttp-reality-vision-in",
                 "listen": "0.0.0.0",
                 "port": port,
                 "protocol": "vless",
@@ -263,29 +265,27 @@ def render_vless_grpc_tls_server(
                     "clients": [
                         {
                             "id": material.client_id,
-                            "email": "vless-grpc-collector",
+                            "flow": "xtls-rprx-vision",
+                            "email": "vless-xhttp-reality-collector",
                         }
                     ],
-                    "decryption": "none",
+                    "decryption": material.vless_decryption,
                 },
                 "streamSettings": {
-                    "network": "grpc",
-                    "method": "grpc",
-                    "security": "tls",
-                    "grpcSettings": {
-                        "serviceName": service_name,
-                        "multiMode": False,
+                    "network": "xhttp",
+                    "method": "xhttp",
+                    "security": "reality",
+                    "xhttpSettings": {
+                        "path": xhttp_path(material.client_id),
+                        "mode": xhttp_mode,
                     },
-                    "tlsSettings": {
-                        "rejectUnknownSni": True,
-                        "minVersion": "1.3",
-                        "alpn": ["h2"],
-                        "certificates": [
-                            {
-                                "certificateFile": certificate_container_path,
-                                "keyFile": private_key_container_path,
-                            }
-                        ],
+                    "realitySettings": {
+                        "show": False,
+                        "dest": material.reality_dest,
+                        "xver": 0,
+                        "serverNames": [material.reality_server_name],
+                        "privateKey": private_key,
+                        "shortIds": [short_id],
                     },
                 },
             }
@@ -298,16 +298,21 @@ def render_vless_grpc_tls_server(
     }
 
 
-def render_vless_grpc_tls_client(
+def render_vless_xhttp_reality_vision_client(
     material: TlsMaterial,
     *,
     server_address: str,
     server_port: int,
     socks_port: int = 10808,
+    xhttp_mode: str = "stream-up",
 ) -> dict[str, Any]:
     validate_port(server_port)
     validate_port(socks_port)
+    _validate_xhttp_reality_mode(xhttp_mode)
     normalized_server_address = normalize_server_address(server_address)
+    _, public_key, short_id = reality_values(material)
+    if not material.vless_encryption:
+        raise ConfigurationError("VLESS Encryption client material is missing")
     return {
         "log": {"loglevel": "warning", "access": "none"},
         "inbounds": [
@@ -327,24 +332,33 @@ def render_vless_grpc_tls_client(
                     "address": normalized_server_address,
                     "port": server_port,
                     "id": material.client_id,
-                    "encryption": "none",
+                    "encryption": material.vless_encryption,
+                    "flow": "xtls-rprx-vision",
                 },
                 "streamSettings": {
-                    "network": "grpc",
-                    "method": "grpc",
-                    "security": "tls",
-                    "grpcSettings": {
-                        "serviceName": grpc_service_name(material.client_id),
-                        "multiMode": False,
+                    "network": "xhttp",
+                    "method": "xhttp",
+                    "security": "reality",
+                    "xhttpSettings": {
+                        "path": xhttp_path(material.client_id),
+                        "mode": xhttp_mode,
                     },
-                    "tlsSettings": {
-                        "serverName": material.server_name,
+                    "realitySettings": {
+                        "serverName": material.reality_server_name,
                         "fingerprint": "chrome",
-                        "alpn": ["h2"],
-                        "pinnedPeerCertSha256": material.certificate_sha256,
+                        "publicKey": public_key,
+                        "shortId": short_id,
+                        "spiderX": "/",
                     },
                 },
             },
             {"tag": "block", "protocol": "blackhole"},
         ],
     }
+
+
+def _validate_xhttp_reality_mode(value: str) -> None:
+    if value != "stream-up":
+        raise ConfigurationError(
+            "VLESS XHTTP REALITY requires xhttp_mode=stream-up"
+        )

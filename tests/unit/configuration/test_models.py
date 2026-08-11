@@ -25,7 +25,7 @@ def test_accepts_complete_target_matrix() -> None:
         "class-05-vmess-websocket-tls",
         "class-06-vmess-xhttp-h2-tls",
         "class-07-vless-raw-reality-vision",
-        "class-08-vless-grpc-tls",
+        "class-08-vless-xhttp-reality-vision",
         "class-09-trojan-raw-tls",
         "class-10-trojan-websocket-tls",
         "class-11-hysteria2-quic-tls",
