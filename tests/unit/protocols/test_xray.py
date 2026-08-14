@@ -485,6 +485,31 @@ def test_rejects_stale_generated_client_placeholder(tmp_path: Path) -> None:
         validate_generated_client_address(client)
 
 
+def test_reads_trojan_generated_client_server_address(tmp_path: Path) -> None:
+    client = tmp_path / "client.json"
+    client.write_text(
+        '{"outbounds":[{"protocol":"trojan","settings":{"servers":['
+        '{"address":"192.0.2.10","port":24443,"password":"secret"}'
+        ']}}]}',
+        encoding="utf-8",
+    )
+
+    assert validate_generated_client_address(client) == "192.0.2.10"
+
+
+def test_rejects_trojan_generated_client_placeholder(tmp_path: Path) -> None:
+    client = tmp_path / "client.json"
+    client.write_text(
+        '{"outbounds":[{"protocol":"trojan","settings":{"servers":['
+        '{"address":"你的服务器公网IP","port":24443,"password":"secret"}'
+        ']}}]}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="rerun `lab xray render`"):
+        validate_generated_client_address(client)
+
+
 def test_server_status_reports_listener_health(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config = tmp_path / "secrets" / "generated" / "server.json"
     config.parent.mkdir(parents=True)

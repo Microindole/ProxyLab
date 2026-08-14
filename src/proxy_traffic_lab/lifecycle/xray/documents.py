@@ -19,7 +19,11 @@ def write_private_json(path: Path, value: dict[str, Any]) -> None:
 def validate_generated_client_address(client_path: Path) -> str:
     try:
         document = json.loads(client_path.read_text(encoding="utf-8"))
-        value = document["outbounds"][0]["settings"]["address"]
+        settings = document["outbounds"][0]["settings"]
+        if "address" in settings:
+            value = settings["address"]
+        else:
+            value = settings["servers"][0]["address"]
     except (OSError, json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
         raise ConfigurationError(
             f"cannot read generated client server address from {client_path}"
@@ -30,6 +34,5 @@ def validate_generated_client_address(client_path: Path) -> str:
         raise ConfigurationError(
             "generated client server address is not an IP; rerun `lab xray render` with the VPS public IP"
         ) from exc
-
 
 
